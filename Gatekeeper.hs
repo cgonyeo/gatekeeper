@@ -13,6 +13,7 @@ import Control.Concurrent
 import GHC.TypeLits
 import System.Environment
 import System.IO
+import System.Exit
 
 import GateNetwork
 import GateCRDT
@@ -21,24 +22,24 @@ import GateLDAP
 getInitData :: IO (MVar State)
 getInitData = do
        m <- newEmptyMVar
-       putMVar m (State (Set [Tag "Tits McGee" "4848484" "d8f8c8a4-4671-11e4-8001-52540004b198"] []) (Cluster [] []) NotAMember)
+       putMVar m (State (Set [Tag "buttlord" "33333" "69696969"] []) (Cluster [] []) NotAMember)
        return m
+
+start progName args d = do s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 1)
+                           netloop s d (args !! 0) (args !! 1)
+                           return ()
 
 main = do
         progName <- getProgName
         args <- getArgs
+        d <- getInitData
         case (length args) of
-            2 -> do d <- getInitData
-                    forkIO $ do fetchTagChanges d; return ()
-                    (Just uid) <- U1.nextUUID
+            2 -> do (Just uid) <- U1.nextUUID
                     modifyMVar_ d (\s -> return $ changeMembership (addHost s (Host (args !! 0) (show uid))) Member)
-                    s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 1)
-                    netloop s d (args !! 0) (args !! 1)
-                    return ()
-            3 -> do d <- getInitData
-                    forkIO $ do askForNodes (args !! 2) (args !! 1)
+                    forkIO $ start progName args d
+            3 -> do forkIO $ do askForNodes (args !! 2) (args !! 1)
                                 modifyMVar_ d (\s -> return $ changeMembership s Joining)
-                    s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 1)
-                    netloop s d (args !! 0) (args !! 1)
-                    return ()
-            _ -> putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
+                    forkIO $ start progName args d
+            _ -> do putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
+                    exitFailure
+        ldaploop d
