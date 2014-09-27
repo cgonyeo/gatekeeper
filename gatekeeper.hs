@@ -128,16 +128,26 @@ sendNodes d l p = do
                                 }
                  sendMsg l p msg2
 
+askForNodes l p = do
+        let msg = Msg { msgoper  = P.putField 4
+                      , msgtags  = P.putField []
+                      , msgusers = P.putField []
+                      , msgtuids = P.putField []
+                      , msghosts = P.putField []
+                      , msghuids = P.putField []
+                      }
+        sendMsg l p msg
+
 handleMsg msg d l p = do
         case oper of
             0 -> modifyMVar_ d (\s -> return $ addManyTags s tags)      -- 0: add these tags
             1 -> modifyMVar_ d (\s -> return $ removeManyTags s tags)   -- 1: remove these tags
             2 -> modifyMVar_ d (\s -> return $ addManyHosts s hosts)    -- 2: add these hosts
             3 -> modifyMVar_ d (\s -> return $ removeManyHosts s hosts) -- 3: remove these hosts
-            4 -> do forkIO $ sendNodes d l p; return ()                  -- 4: They requested we share all our hostnames with them
+            4 -> do forkIO $ sendNodes d l p; return ()                 -- 4: They requested we share all our known nodes with them
             5 -> return ()                                              -- 5: Just receiving some hostnames
         s <- readMVar d
-        putStrLn "Update received. New data:"
+        putStrLn "Update received. Updated state:"
         putStrLn $ show s
         where (Just tags) = msgToTags msg
               (Just hosts) = msgToHosts msg
@@ -168,9 +178,14 @@ sendMsg h p m = do
 main = do
         progName <- getProgName
         args <- getArgs
-        if length args /= 1
-            then putStrLn $ "Usage: " ++ progName ++ " <portnum>"
-            else do d <- getInitData
+        case (length args) of
+            1 -> do d <- getInitData
                     s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 0)
                     netloop s d $ read (args !! 0)
                     return ()
+            2 -> do d <- getInitData
+                    forkIO $ askForNodes (args !! 1) (read $ args !! 0)
+                    s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 0)
+                    netloop s d $ read (args !! 0)
+                    return ()
+            _ -> putStrLn $ "Usage: " ++ progName ++ " <portnum> (<known host>)"
