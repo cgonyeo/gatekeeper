@@ -10,3 +10,5 @@ cabal-dev
 cabal.sandbox.config
 cabal.config
 gatekeeper
+*.swp
+Gatekeeper
