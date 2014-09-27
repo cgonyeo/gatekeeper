@@ -42,4 +42,4 @@ main = do
                     forkIO $ start progName args d
             _ -> do putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
                     exitFailure
-        ldaploop d
+        ldaploop d (args !! 1)

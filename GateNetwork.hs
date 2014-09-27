@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DataKinds #-}
 module GateNetwork ( askForNodes
+                   , sendAddDeltas
+                   , sendDelDeltas
                    , netloop
                    ) where
 
@@ -39,7 +41,7 @@ msgToTags msg = if ((length users) == (length tags)) && ((length tags) == (lengt
                     else Nothing
                     where users = map T.unpack $ P.getField $ msgusers msg
                           tags  = map T.unpack $ P.getField $ msgtags  msg
-                          uids  = map T.unpack $ P.getField $ msgtuids  msg
+                          uids  = map T.unpack $ P.getField $ msgtuids msg
 
 msgToHosts :: Msg -> Maybe [Host]
 msgToHosts msg = if (length hosts) == (length uids)
@@ -63,6 +65,9 @@ client handle d h p l = do
 
 handleMsg msg d h p l = do
         putStrLn $ "\nRequest received from " ++ l ++ " for operation " ++ (show oper)
+        putStrLn $ (show $ length $ P.getField $ msgusers msg)
+        putStrLn $ (show $ length $ P.getField $ msgtags msg)
+        putStrLn $ (show $ length $ P.getField $ msgtuids msg)
         case oper of
          -- 0: add these tags
             0 -> modifyMVar_ d (\s -> return $ addManyTags s tags)
@@ -84,7 +89,6 @@ handleMsg msg d h p l = do
                       _ -> return s)
         s <- readMVar d
         putStrLn $ "Operation completed for " ++ l ++ ". Current state:"
-        putStrLn $ show s
         if (memberStatus s Member) && (not $ h `inCluster` s)
             then do 
                     forkIO $ do
@@ -133,7 +137,6 @@ addSelf h p d = do
         return $ map (\(Host hst _) -> addHostToTarget (Host h (show uid)) hst p) lst
 
 addHostToTarget (Host h uid) t p = do
-        putStrLn $ "Adding myself to " ++ t
         let msg = Msg { msgoper  = P.putField 2
                       , msgtags  = P.putField []
                       , msgusers = P.putField []
@@ -154,7 +157,38 @@ askForNodes l p = do
                       }
         sendMsg l p msg
 
+sendAddDeltas d p toadd = do 
+                 s <- readMVar d
+                 let msg = Msg { msgoper  = P.putField 0
+                               , msgusers = P.putField $ map (\(Tag user _ _) -> T.pack user) toadd
+                               , msgtags  = P.putField $ map (\(Tag _ id _) -> T.pack id) toadd
+                               , msgtuids = P.putField $ map (\(Tag _ _ uid) -> T.pack uid) toadd
+                               , msghosts = P.putField []
+                               , msghuids = P.putField []
+                               }
+                 putStrLn $ (show $ length $ P.getField $ msgusers msg)
+                 putStrLn $ (show $ length $ P.getField $ msgtags msg)
+                 putStrLn $ (show $ length $ P.getField $ msgtuids msg)
+                 let hosts = getActiveHosts s
+                 mapM_ (\(Host h _) -> sendMsg h p msg) hosts
+
+sendDelDeltas d p todel = do 
+                 s <- readMVar d
+                 let msg = Msg { msgoper  = P.putField 1
+                               , msgusers = P.putField $ map (\(Tag user _ _) -> T.pack user) todel
+                               , msgtags  = P.putField $ map (\(Tag _ id _) -> T.pack id) todel
+                               , msgtuids = P.putField $ map (\(Tag _ _ uid) -> T.pack uid) todel
+                               , msghosts = P.putField []
+                               , msghuids = P.putField []
+                               }
+                 putStrLn $ (show $ length $ P.getField $ msgusers msg)
+                 putStrLn $ (show $ length $ P.getField $ msgtags msg)
+                 putStrLn $ (show $ length $ P.getField $ msgtuids msg)
+                 let hosts = getActiveHosts s
+                 mapM_ (\(Host h _) -> sendMsg h p msg) hosts
+
 sendMsg h p m = do
+        putStrLn $ "Sending message to " ++ h
         addrInfo <- NS.getAddrInfo Nothing (Just h) (Just p)
         let serverAddr = head addrInfo
         sock <- NS.socket (NS.addrFamily serverAddr) NS.Stream NS.defaultProtocol

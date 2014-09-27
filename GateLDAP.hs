@@ -11,13 +11,27 @@ import System.Random
 import qualified Data.UUID.V1 as U1
 
 import GateCRDT
+import GateNetwork
 
-ldaploop d = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
-                threadDelay sleepamt
-                (toadd,todel) <- fetchTagChanges d
-                modifyMVar_ d (\s -> return $ addManyTags s toadd)
-                modifyMVar_ d (\s -> return $ removeManyTags s todel)
-                ldaploop d
+ldaploop d p = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
+                  threadDelay sleepamt
+                  (toadd,todel) <- fetchTagChanges d
+                  modifyMVar_ d (\s -> return $ addManyTags s toadd)
+                  modifyMVar_ d (\s -> return $ removeManyTags s todel)
+                  forkIO $ sendAdd d p toadd
+                  ldaploop d p
+
+sendAdd d p [] = do return ()
+sendAdd d p toadd = do
+        let (currBatch,nextBatch) = splitAt 100 toadd
+        forkIO $ sendAddDeltas d p currBatch
+        sendAdd d p nextBatch
+
+sendDel d p [] = do return ()
+sendDel d p todel = do
+        let (currBatch,nextBatch) = splitAt 100 todel
+        forkIO $ sendDelDeltas d p currBatch
+        sendDel d p nextBatch
 
 getUser :: [(String, [String])] -> Maybe String
 getUser [] = Nothing

@@ -7,6 +7,7 @@ module GateCRDT ( Tag (Tag)
                 , isInSet
                 , inCluster
                 , getActiveTags
+                , getActiveHosts
                 , addTag
                 , addManyTags
                 , removeTag
@@ -48,6 +49,9 @@ isInSet (State (Set a r) _ _) u t =
 
 getActiveTags :: State -> [Tag]
 getActiveTags (State (Set a r) _ _) = filter (\e -> not $ e `elem` r) a
+
+getActiveHosts :: State -> [Host]
+getActiveHosts (State _ (Cluster a r) _) = filter (\e -> not $ e `elem` r) a
 
 anyElem :: String -> [Host] -> Bool
 anyElem s l = foldl (\acc (Host h _) -> (h == s) || acc) False l
