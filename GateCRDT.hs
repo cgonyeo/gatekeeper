@@ -4,7 +4,9 @@ module GateCRDT ( Tag (Tag)
                 , Cluster (Cluster)
                 , Membership (NotAMember,Joining,Receiving,Member)
                 , State (State)
+                , isInSet
                 , inCluster
+                , getActiveTags
                 , addTag
                 , addManyTags
                 , removeTag
@@ -37,6 +39,15 @@ data State = State Set Cluster Membership deriving (Show,Eq)
 
 lookup :: Set -> Tag -> Bool
 lookup (Set a r) e = e `elem` a && not (e `elem` r)
+
+isInSet :: State -> String -> String -> Bool
+isInSet (State (Set a r) _ _) u t = 
+       (length tags2) > 0
+       where tags = filter (\(Tag user id _) -> (user == u) && (id == t)) a
+             tags2 = filter (\tag -> not (tag `elem` r)) tags
+
+getActiveTags :: State -> [Tag]
+getActiveTags (State (Set a r) _ _) = filter (\e -> not $ e `elem` r) a
 
 anyElem :: String -> [Host] -> Bool
 anyElem s l = foldl (\acc (Host h _) -> (h == s) || acc) False l

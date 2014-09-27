@@ -13,13 +13,15 @@ import Control.Concurrent
 import GHC.TypeLits
 import System.Environment
 import System.IO
+
 import GateNetwork
 import GateCRDT
+import GateLDAP
 
 getInitData :: IO (MVar State)
 getInitData = do
        m <- newEmptyMVar
-       putMVar m (State (Set [] []) (Cluster [] []) NotAMember)
+       putMVar m (State (Set [Tag "Tits McGee" "4848484" "d8f8c8a4-4671-11e4-8001-52540004b198"] []) (Cluster [] []) NotAMember)
        return m
 
 main = do
@@ -27,6 +29,7 @@ main = do
         args <- getArgs
         case (length args) of
             2 -> do d <- getInitData
+                    forkIO $ do fetchTagChanges d; return ()
                     (Just uid) <- U1.nextUUID
                     modifyMVar_ d (\s -> return $ changeMembership (addHost s (Host (args !! 0) (show uid))) Member)
                     s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 1)
