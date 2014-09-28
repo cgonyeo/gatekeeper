@@ -15,9 +15,9 @@ import System.Environment
 import System.IO
 import System.Exit
 
-import GateNetwork
-import GateCRDT
-import GateLDAP
+import Gatekeeper.GateNetwork
+import Gatekeeper.GateCRDT
+import Gatekeeper.GateLDAP
 
 getInitData :: IO (MVar State)
 getInitData = do
