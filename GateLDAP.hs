@@ -19,6 +19,7 @@ ldaploop d p = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
                   modifyMVar_ d (\s -> return $ addManyTags s toadd)
                   modifyMVar_ d (\s -> return $ removeManyTags s todel)
                   forkIO $ sendAdd d p toadd
+                  forkIO $ sendDel d p todel
                   ldaploop d p
 
 sendAdd d p [] = do return ()

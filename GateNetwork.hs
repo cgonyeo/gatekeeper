@@ -65,9 +65,6 @@ client handle d h p l = do
 
 handleMsg msg d h p l = do
         putStrLn $ "\nRequest received from " ++ l ++ " for operation " ++ (show oper)
-        putStrLn $ (show $ length $ P.getField $ msgusers msg)
-        putStrLn $ (show $ length $ P.getField $ msgtags msg)
-        putStrLn $ (show $ length $ P.getField $ msgtuids msg)
         case oper of
          -- 0: add these tags
             0 -> modifyMVar_ d (\s -> return $ addManyTags s tags)
@@ -92,10 +89,7 @@ handleMsg msg d h p l = do
         putStrLn $ (show s)
         if (memberStatus s Member) && (not $ h `inCluster` s)
             then do 
-                    forkIO $ do
-                        hosts <- addSelf h p d
-                        printThing hosts
-                        return ()
+                    forkIO $ addSelf h p d
                     return ()
             else return ()
         where (Just tags) = msgToTags msg
@@ -133,7 +127,7 @@ addSelf h p d = do
         (State _ (Cluster a r) _) <- readMVar d
         let lst = filter (\h -> not (h `elem` r)) a
         modifyMVar_ d (\s -> return $ addHost s (Host h (show uid)))
-        return $ map (\(Host hst _) -> addHostToTarget (Host h (show uid)) hst p) lst
+        mapM_ (\(Host hst _) -> forkIO $ addHostToTarget (Host h (show uid)) hst p) lst
 
 addHostToTarget (Host h uid) t p = do
         let msg = Msg { msgoper  = P.putField 2
@@ -144,7 +138,6 @@ addHostToTarget (Host h uid) t p = do
                       , msghuids = P.putField [T.pack uid]
                       }
         sendMsg t p msg
-        return h
 
 askForNodes l p = do
         let msg = Msg { msgoper  = P.putField 4
@@ -165,11 +158,8 @@ sendAddDeltas d p toadd = do
                                , msghosts = P.putField []
                                , msghuids = P.putField []
                                }
-                 putStrLn $ (show $ length $ P.getField $ msgusers msg)
-                 putStrLn $ (show $ length $ P.getField $ msgtags msg)
-                 putStrLn $ (show $ length $ P.getField $ msgtuids msg)
                  let hosts = getActiveHosts s
-                 mapM_ (\(Host h _) -> sendMsg h p msg) hosts
+                 mapM_ (\(Host h _) -> forkIO $ sendMsg h p msg) hosts
 
 sendDelDeltas d p todel = do 
                  s <- readMVar d
@@ -180,9 +170,6 @@ sendDelDeltas d p todel = do
                                , msghosts = P.putField []
                                , msghuids = P.putField []
                                }
-                 putStrLn $ (show $ length $ P.getField $ msgusers msg)
-                 putStrLn $ (show $ length $ P.getField $ msgtags msg)
-                 putStrLn $ (show $ length $ P.getField $ msgtuids msg)
                  let hosts = getActiveHosts s
                  mapM_ (\(Host h _) -> sendMsg h p msg) hosts
 
