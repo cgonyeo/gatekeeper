@@ -50,11 +50,13 @@ msgToHosts msg = if (length hosts) == (length uids)
                     where hosts = map T.unpack $ P.getField $ msghosts msg
                           uids  = map T.unpack $ P.getField $ msghuids msg
 
+netloop :: Socket -> MVar State -> String -> NS.ServiceName -> IO b
 netloop s d h p = do
         (handle,l,_) <- accept s
         forkIO $ client handle d h p l
         netloop s d h p
 
+client :: Handle -> MVar State -> String -> NS.ServiceName -> String -> IO ()
 client handle d h p l = do
         m <- hGetContents handle
         let rslt = (G.runGet P.decodeMessage =<< H.unhex (C.pack m) :: Either String Msg)
@@ -63,6 +65,7 @@ client handle d h p l = do
             Right msg -> handleMsg msg d h p l
         hClose handle
 
+handleMsg :: Msg -> MVar State -> String -> NS.ServiceName -> String -> IO ()
 handleMsg msg d h p l = do
         putStrLn $ "\nRequest received from " ++ l ++ " for operation " ++ (show oper)
         case oper of
@@ -96,6 +99,7 @@ handleMsg msg d h p l = do
               (Just hosts) = msgToHosts msg
               oper = P.getField $ msgoper msg
 
+sendNodes :: MVar State -> String -> NS.ServiceName -> IO ()
 sendNodes d l p = do 
                  (State _ (Cluster a r) _) <- readMVar d
                  putStrLn $ "Sending nodes to add: " ++ (show a)
@@ -116,12 +120,7 @@ sendNodes d l p = do
                                 }
                  sendMsg l p msg2
 
-printThing [] = do return ()
-printThing (x:xs) = do
-        y <- x
-        putStrLn $ show y
-        printThing xs
-
+addSelf :: String -> NS.ServiceName -> MVar State -> IO ()
 addSelf h p d = do
         (Just uid) <- U1.nextUUID
         (State _ (Cluster a r) _) <- readMVar d
@@ -129,6 +128,7 @@ addSelf h p d = do
         modifyMVar_ d (\s -> return $ addHost s (Host h (show uid)))
         mapM_ (\(Host hst _) -> forkIO $ addHostToTarget (Host h (show uid)) hst p) lst
 
+addHostToTarget :: Host -> String -> NS.ServiceName -> IO ()
 addHostToTarget (Host h uid) t p = do
         let msg = Msg { msgoper  = P.putField 2
                       , msgtags  = P.putField []
@@ -139,6 +139,7 @@ addHostToTarget (Host h uid) t p = do
                       }
         sendMsg t p msg
 
+askForNodes :: String -> NS.ServiceName -> IO ()
 askForNodes l p = do
         let msg = Msg { msgoper  = P.putField 4
                       , msgtags  = P.putField []
@@ -149,6 +150,7 @@ askForNodes l p = do
                       }
         sendMsg l p msg
 
+sendAddDeltas :: MVar State -> NS.ServiceName -> [Tag] -> IO ()
 sendAddDeltas d p toadd = do 
                  s <- readMVar d
                  let msg = Msg { msgoper  = P.putField 0
@@ -161,6 +163,7 @@ sendAddDeltas d p toadd = do
                  let hosts = getActiveHosts s
                  mapM_ (\(Host h _) -> forkIO $ sendMsg h p msg) hosts
 
+sendDelDeltas :: MVar State -> NS.ServiceName -> [Tag] -> IO ()
 sendDelDeltas d p todel = do 
                  s <- readMVar d
                  let msg = Msg { msgoper  = P.putField 1
@@ -173,6 +176,7 @@ sendDelDeltas d p todel = do
                  let hosts = getActiveHosts s
                  mapM_ (\(Host h _) -> sendMsg h p msg) hosts
 
+sendMsg :: String -> NS.ServiceName -> Msg -> IO ()
 sendMsg h p m = do
         addrInfo <- NS.getAddrInfo Nothing (Just h) (Just p)
         let serverAddr = head addrInfo

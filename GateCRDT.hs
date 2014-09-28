@@ -38,9 +38,6 @@ data Membership = NotAMember | Joining | Receiving | Member deriving (Show,Eq)
 
 data State = State Set Cluster Membership deriving (Show,Eq)
 
-lookup :: Set -> Tag -> Bool
-lookup (Set a r) e = e `elem` a && not (e `elem` r)
-
 isInSet :: State -> String -> String -> Bool
 isInSet (State (Set a r) _ _) u t = 
        (length tags2) > 0
@@ -90,17 +87,6 @@ removeHost (State s (Cluster a r) m) e = if e `elem` r
 
 removeManyHosts :: State -> [Host] -> State
 removeManyHosts state hosts = foldl (\s h -> removeHost s h) state hosts
-
-subset :: (Eq a) => [a] -> [a] -> Bool
-subset l1 l2 = foldl (\acc e -> (e `elem` l2) || acc) False l1
-
-compare :: Set -> Set -> Bool
-compare (Set sa sr) (Set ta tr) = sa `subset` ta || sr `subset` tr
-
-merge :: Set -> Set -> Set
-merge (Set sa sr) (Set ta tr) = Set ua ur
-                    where ua = L.union sa ta
-                          ur = L.union sr tr
 
 changeMembership :: State -> Membership -> State
 changeMembership (State s c _) m = State s c m

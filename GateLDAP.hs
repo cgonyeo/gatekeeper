@@ -7,12 +7,14 @@ import LDAP.Init
 import LDAP.Search
 import LDAP.Constants
 import System.Random
+import Network.Socket
 
 import qualified Data.UUID.V1 as U1
 
 import GateCRDT
 import GateNetwork
 
+ldaploop :: MVar State -> Network.Socket.ServiceName -> IO ()
 ldaploop d p = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
                   threadDelay sleepamt
                   (toadd,todel) <- fetchTagChanges d
@@ -22,12 +24,14 @@ ldaploop d p = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
                   forkIO $ sendDel d p todel
                   ldaploop d p
 
+sendAdd :: MVar State -> ServiceName -> [Tag] -> IO ()
 sendAdd d p [] = do return ()
 sendAdd d p toadd = do
         let (currBatch,nextBatch) = splitAt 100 toadd
         forkIO $ sendAddDeltas d p currBatch
         sendAdd d p nextBatch
 
+sendDel :: MVar State -> ServiceName -> [Tag] -> IO ()
 sendDel d p [] = do return ()
 sendDel d p todel = do
         let (currBatch,nextBatch) = splitAt 100 todel
