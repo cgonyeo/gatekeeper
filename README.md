@@ -71,9 +71,11 @@ currently implemented, and many of which are not fully thought out:
 - If all nodes go offline, and none remain available to send the set to new
   nodes, the first node back online will pull the entire set from LDAP.
 - One possible behavior could be detecting when the LDAP server is unavailable,
-  and exposing controls on the site to add or remove RFID tags for specific
-  users. This means that when LDAP goes offline, we will still have the ability
+  and exposing controls to specific members on the site to add or remove RFID
+  tags. This means that when LDAP goes offline, we will still have the ability
   to revoke someone's access to a room, instead of having to endure either a
   service outage or a security hole. All changes made during this period would
   probably only be temporary until the LDAP server became available again, so I
   can avoid dealing with writing to LDAP.
+- Doors will still be able to be restricted to a subset of members. Perhaps
+  based on LDAP groups?
