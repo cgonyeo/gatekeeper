@@ -89,11 +89,11 @@ handleMsg msg d h p l = do
                       _ -> return s)
         s <- readMVar d
         putStrLn $ "Operation completed for " ++ l ++ ". Current state:"
+        putStrLn $ (show s)
         if (memberStatus s Member) && (not $ h `inCluster` s)
             then do 
                     forkIO $ do
                         hosts <- addSelf h p d
-                        putStrLn "Added myself to: "
                         printThing hosts
                         return ()
                     return ()
@@ -113,7 +113,6 @@ sendNodes d l p = do
                                 , msghuids = P.putField $ map (\(Host _ uid) -> T.pack uid) a
                                 }
                  sendMsg l p msg1
-                 threadDelay 2000000
                  let msg2 = Msg { msgoper  = P.putField 3
                                 , msgtags  = P.putField []
                                 , msgusers = P.putField []
@@ -188,7 +187,6 @@ sendDelDeltas d p todel = do
                  mapM_ (\(Host h _) -> sendMsg h p msg) hosts
 
 sendMsg h p m = do
-        putStrLn $ "Sending message to " ++ h
         addrInfo <- NS.getAddrInfo Nothing (Just h) (Just p)
         let serverAddr = head addrInfo
         sock <- NS.socket (NS.addrFamily serverAddr) NS.Stream NS.defaultProtocol

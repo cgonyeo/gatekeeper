@@ -42,7 +42,7 @@ getUser (_:attrs) = getUser attrs
 
 getId :: [(String, [String])] -> Maybe String
 getId [] = Nothing
-getId (("uidNumber", vals):attrs)
+getId (("roomNumber", vals):attrs)
     | (length vals) > 0 = Just $ vals !! 0
     | otherwise = getId attrs
 getId (_:attrs) = getId attrs
@@ -64,7 +64,7 @@ fetchTagChanges :: MVar (State) -> IO ([Tag],[Tag])
 fetchTagChanges d = do
         l <- ldapInitialize "ldaps://ldap.csh.rit.edu"
         ldapSimpleBind l "uid=dgonyeo,ou=users,dc=csh,dc=rit,dc=edu" "lolpassword"
-        results <- ldapSearch l Nothing LdapScopeSubtree Nothing (LDAPAttrList ["uid","uidNumber"]) False
+        results <- ldapSearch l (Just "dc=csh,dc=rit,dc=edu") LdapScopeSubtree Nothing (LDAPAttrList ["uid","roomNumber"]) False
         let people = [((getUser a),(getId a)) | a <- (map (\(LDAPEntry _ attrs) -> attrs) results)]
         let peoplefiltered = filter (\(u,i) -> case (u,i) of
                                                    (Just _,Just _) -> True
@@ -74,6 +74,6 @@ fetchTagChanges d = do
         addDelta <- genAddDeltas s peoplemapped
         delDelta <- genDelDeltas s peoplemapped
         putMVar d s
-        putStrLn $ "LDAP add: " ++ (show addDelta)
-        putStrLn $ "LDAP del: " ++ (show delDelta)
+        putStrLn $ "LDAP add: " ++ (show $ length addDelta)
+        putStrLn $ "LDAP del: " ++ (show $ length delDelta)
         return (addDelta,delDelta)
