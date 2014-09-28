@@ -18,7 +18,7 @@ implementation. Specifically the improvements are:
   all other doors, thus minimizing communication with the LDAP server
 
 The project is written in Haskell, and the local cache is implemented using an
-Observed-Removed Set CRDT, as is defined in
+Observed-Removed Set CRDT, which is defined in
 [this](http://hal.inria.fr/docs/00/55/55/88/PDF/techreport.pdf) paper. All nodes
 check the LDAP server for changes, at random intervals and independent of each
 other.
@@ -56,3 +56,8 @@ currently implemented:
   guaranteed to be immediate (although in practice with this implementation and
   CSH's network they will probably always appear to be, barring any network
   partitions). This is accounted for with the heartbeats and timeouts.
+- One possible behavior could be detecting when the LDAP server is unavailable,
+  and exposing controls on the site to add or remove RFID tags for specific
+  users to remove dependency on the LDAP server. All changes made during this
+  period would probably only be temporary until the LDAP server became available
+  again, so I can avoid dealing with writing to LDAP.
