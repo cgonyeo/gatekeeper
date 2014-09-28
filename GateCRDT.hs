@@ -3,11 +3,10 @@ module GateCRDT ( Tag (Tag)
                 , Host (Host)
                 , Cluster (Cluster)
                 , Membership (NotAMember,Joining,Receiving,Member)
+                , NetState (NetState)
                 , State (State)
                 , isInSet
                 , inCluster
-                , getActiveTags
-                , getActiveHosts
                 , addTag
                 , addManyTags
                 , removeTag
@@ -16,8 +15,6 @@ module GateCRDT ( Tag (Tag)
                 , addManyHosts
                 , removeHost
                 , removeManyHosts
-                , changeMembership
-                , memberStatus
                 ) where
 
 import qualified Data.List as L
@@ -36,7 +33,12 @@ data Cluster = Cluster [Host] [Host] deriving (Show,Eq)
 
 data Membership = NotAMember | Joining | Receiving | Member deriving (Show,Eq)
 
-data State = State Set Cluster Membership deriving (Show,Eq)
+data NetState = NetState { hostname :: String
+                         , port :: String
+                         , membership :: Membership
+                         } deriving (Show,Eq)
+
+data State = State Set Cluster NetState deriving (Show,Eq)
 
 isInSet :: State -> String -> String -> Bool
 isInSet (State (Set a r) _ _) u t = 
@@ -44,52 +46,38 @@ isInSet (State (Set a r) _ _) u t =
        where tags = filter (\(Tag user id _) -> (user == u) && (id == t)) a
              tags2 = filter (\tag -> not (tag `elem` r)) tags
 
-getActiveTags :: State -> [Tag]
-getActiveTags (State (Set a r) _ _) = filter (\e -> not $ e `elem` r) a
-
-getActiveHosts :: State -> [Host]
-getActiveHosts (State _ (Cluster a r) _) = filter (\e -> not $ e `elem` r) a
-
-anyElem :: String -> [Host] -> Bool
-anyElem s l = foldl (\acc (Host h _) -> (h == s) || acc) False l
-
-inCluster :: String -> State -> Bool
-inCluster h (State _ (Cluster a r) _) = h `anyElem` a && not (h `anyElem` r)
+inCluster :: String -> Cluster -> Bool
+inCluster h (Cluster a r) = h `anyElem` a && not (h `anyElem` r)
+        where anyElem s l = foldl (\acc (Host h _) -> (h == s) || acc) False l
 
 addTag :: State -> Tag -> State
-addTag (State (Set a r) c m) e = if e `elem` a
-                                     then State (Set a r) c m
-                                     else State (Set (e:a) r) c m
+addTag (State (Set a r) c n) e = if e `elem` a
+                                     then State (Set a r) c n
+                                     else State (Set (e:a) r) c n
 
 addManyTags :: State -> [Tag] -> State
 addManyTags state tags = foldl (\s t -> addTag s t) state tags
 
 removeTag :: State -> Tag -> State
-removeTag (State (Set a r) c m) e = if e `elem` r
-                                        then State (Set a r) c m
-                                        else State (Set a (e:r)) c m
+removeTag (State (Set a r) c n) e = if e `elem` r
+                                        then State (Set a r) c n
+                                        else State (Set a (e:r)) c n
 
 removeManyTags :: State -> [Tag] -> State
 removeManyTags state tags = foldl (\s t -> removeTag s t) state tags
 
 addHost :: State -> Host -> State
-addHost (State s (Cluster a r) m) e = if e `elem` a
-                                          then State s (Cluster a r) m
-                                          else State s (Cluster (e:a) r) m
+addHost (State s (Cluster a r) n) e = if e `elem` a
+                                          then State s (Cluster a r) n
+                                          else State s (Cluster (e:a) r) n
 
 addManyHosts :: State -> [Host] -> State
 addManyHosts state hosts = foldl (\s h -> addHost s h) state hosts
 
 removeHost :: State -> Host -> State
-removeHost (State s (Cluster a r) m) e = if e `elem` r
-                                             then State s (Cluster a r) m
-                                             else State s (Cluster a (e:r)) m
+removeHost (State s (Cluster a r) n) e = if e `elem` r
+                                             then State s (Cluster a r) n
+                                             else State s (Cluster a (e:r)) n
 
 removeManyHosts :: State -> [Host] -> State
 removeManyHosts state hosts = foldl (\s h -> removeHost s h) state hosts
-
-changeMembership :: State -> Membership -> State
-changeMembership (State s c _) m = State s c m
-
-memberStatus :: State -> Membership -> Bool
-memberStatus (State _ _ m1) m2 = m1 == m2

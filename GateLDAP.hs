@@ -14,42 +14,40 @@ import qualified Data.UUID.V1 as U1
 import GateCRDT
 import GateNetwork
 
-ldaploop :: MVar State -> Network.Socket.ServiceName -> IO ()
-ldaploop d p = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
-                  threadDelay sleepamt
-                  (toadd,todel) <- fetchTagChanges d
-                  modifyMVar_ d (\s -> return $ addManyTags s toadd)
-                  modifyMVar_ d (\s -> return $ removeManyTags s todel)
-                  forkIO $ sendAdd d p toadd
-                  forkIO $ sendDel d p todel
-                  ldaploop d p
+ldaploop :: MVar State -> IO ()
+ldaploop d = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
+                threadDelay sleepamt
+                (toadd,todel) <- fetchTagChanges d
+                forkIO $ sendAdd d toadd
+                forkIO $ sendDel d todel
+                ldaploop d
 
-sendAdd :: MVar State -> ServiceName -> [Tag] -> IO ()
-sendAdd d p [] = do return ()
-sendAdd d p toadd = do
+sendAdd :: MVar State -> [Tag] -> IO ()
+sendAdd d [] = do return ()
+sendAdd d toadd = do
         let (currBatch,nextBatch) = splitAt 100 toadd
-        forkIO $ sendAddDeltas d p currBatch
-        sendAdd d p nextBatch
+        forkIO $ sendAddDeltas d currBatch
+        sendAdd d nextBatch
 
-sendDel :: MVar State -> ServiceName -> [Tag] -> IO ()
-sendDel d p [] = do return ()
-sendDel d p todel = do
+sendDel :: MVar State -> [Tag] -> IO ()
+sendDel d [] = do return ()
+sendDel d todel = do
         let (currBatch,nextBatch) = splitAt 100 todel
-        forkIO $ sendDelDeltas d p currBatch
-        sendDel d p nextBatch
+        forkIO $ sendDelDeltas d currBatch
+        sendDel d nextBatch
 
 getUser :: [(String, [String])] -> Maybe String
 getUser [] = Nothing
 getUser (("uid", vals):attrs)
     | (length vals) > 0 = Just $ vals !! 0
-    | otherwise = getUser attrs
+    | otherwise         = getUser attrs
 getUser (_:attrs) = getUser attrs
 
 getId :: [(String, [String])] -> Maybe String
 getId [] = Nothing
 getId (("roomNumber", vals):attrs)
     | (length vals) > 0 = Just $ vals !! 0
-    | otherwise = getId attrs
+    | otherwise         = getId attrs
 getId (_:attrs) = getId attrs
 
 getAttrs :: LDAPEntry -> [(String, [String])]
@@ -62,8 +60,8 @@ genAddDeltas s p = do
         return $ zipWith (\(user,id) (Just uid) -> Tag user id (show uid)) toadd uids
 
 genDelDeltas :: State -> [(String,String)] -> IO [Tag]
-genDelDeltas s p = do
-        return $ filter (\(Tag user id _) -> not $ (user,id) `elem` p) (getActiveTags s)
+genDelDeltas (State (Set a r) _ _) p = do
+        return $ filter (\(Tag user id _) -> not $ (user,id) `elem` p) (filter (\t -> not $ t `elem` r) a)
 
 fetchTagChanges :: MVar (State) -> IO ([Tag],[Tag])
 fetchTagChanges d = do

@@ -50,24 +50,24 @@ msgToHosts msg = if (length hosts) == (length uids)
                     where hosts = map T.unpack $ P.getField $ msghosts msg
                           uids  = map T.unpack $ P.getField $ msghuids msg
 
-netloop :: Socket -> MVar State -> String -> NS.ServiceName -> IO b
-netloop s d h p = do
-        (handle,l,_) <- accept s
-        forkIO $ client handle d h p l
-        netloop s d h p
+netloop :: Socket -> MVar State -> IO b
+netloop s d = do
+        (handle,c,_) <- accept s
+        forkIO $ client handle d c
+        netloop s d
 
-client :: Handle -> MVar State -> String -> NS.ServiceName -> String -> IO ()
-client handle d h p l = do
+client :: Handle -> MVar State -> String -> IO ()
+client handle d c = do
         m <- hGetContents handle
         let rslt = (G.runGet P.decodeMessage =<< H.unhex (C.pack m) :: Either String Msg)
         case rslt of
-            Left s -> putStrLn s
-            Right msg -> handleMsg msg d h p l
+            Left s -> putStrLn $ "Could'nt parse message from client: " ++ s
+            Right msg -> handleMsg msg d c
         hClose handle
 
-handleMsg :: Msg -> MVar State -> String -> NS.ServiceName -> String -> IO ()
-handleMsg msg d h p l = do
-        putStrLn $ "\nRequest received from " ++ l ++ " for operation " ++ (show oper)
+handleMsg :: Msg -> MVar State -> String -> IO ()
+handleMsg msg d n = do
+        putStrLn $ "\nRequest received from " ++ n ++ " for operation " ++ (show oper)
         case oper of
          -- 0: add these tags
             0 -> modifyMVar_ d (\s -> return $ addManyTags s tags)
@@ -78,54 +78,52 @@ handleMsg msg d h p l = do
          -- 3: remove these hosts
             3 -> modifyMVar_ d (\s -> return $ removeManyHosts s hosts)
          -- 4: They requested we share all our known nodes with them
-            4 -> do forkIO $ sendNodes d l p; return ()
-        modifyMVar_ d (\s -> case oper of
-                      2 -> if memberStatus s Joining
-                               then return $ changeMembership s Receiving
-                               else return $ s
-                      3 -> if memberStatus s Receiving
-                               then return $ changeMembership s Member
-                               else return $ s
-                      _ -> return s)
-        s <- readMVar d
-        putStrLn $ "Operation completed for " ++ l ++ ". Current state:"
+            4 -> do forkIO $ sendNodes d n; return ()
+        modifyMVar_ d (\(State s c (NetState h p m)) -> case () of
+                          _ | oper == 2 && m == Joining   -> return $ (State s c (NetState h p Joining))
+                            | oper == 3 && m == Receiving -> return $ (State s c (NetState h p Receiving))
+                            | otherwise                   -> return $ (State s c (NetState h p m)))
+        (State s c (NetState h p m)) <- readMVar d
+        putStrLn $ "Operation completed for " ++ n ++ ". Current state:"
         putStrLn $ (show s)
-        if (memberStatus s Member) && (not $ h `inCluster` s)
+        putStrLn $ (show c)
+        putStrLn $ (show (NetState h p m))
+        if (m == Member) && (not $ h `inCluster` c)
             then do 
-                    forkIO $ addSelf h p d
+                    forkIO $ addSelf d
                     return ()
             else return ()
         where (Just tags) = msgToTags msg
               (Just hosts) = msgToHosts msg
               oper = P.getField $ msgoper msg
 
-sendNodes :: MVar State -> String -> NS.ServiceName -> IO ()
-sendNodes d l p = do 
-                 (State _ (Cluster a r) _) <- readMVar d
-                 putStrLn $ "Sending nodes to add: " ++ (show a)
-                 let msg1 = Msg { msgoper  = P.putField 2
-                                , msgtags  = P.putField []
-                                , msgusers = P.putField []
-                                , msgtuids = P.putField []
-                                , msghosts = P.putField $ map (\(Host loc _) -> T.pack loc) a
-                                , msghuids = P.putField $ map (\(Host _ uid) -> T.pack uid) a
-                                }
-                 sendMsg l p msg1
-                 let msg2 = Msg { msgoper  = P.putField 3
-                                , msgtags  = P.putField []
-                                , msgusers = P.putField []
-                                , msgtuids = P.putField []
-                                , msghosts = P.putField $ map (\(Host loc _) -> T.pack loc) r
-                                , msghuids = P.putField $ map (\(Host loc _) -> T.pack loc) r
-                                }
-                 sendMsg l p msg2
+sendNodes :: MVar State -> String -> IO ()
+sendNodes d c = do 
+                (State _ (Cluster a r) (NetState _ p _)) <- readMVar d
+                putStrLn $ "Sending nodes to add: " ++ (show a)
+                let msg1 = Msg { msgoper  = P.putField 2
+                               , msgtags  = P.putField []
+                               , msgusers = P.putField []
+                               , msgtuids = P.putField []
+                               , msghosts = P.putField $ map (\(Host loc _) -> T.pack loc) a
+                               , msghuids = P.putField $ map (\(Host _ uid) -> T.pack uid) a
+                               }
+                sendMsg c p msg1
+                let msg2 = Msg { msgoper  = P.putField 3
+                               , msgtags  = P.putField []
+                               , msgusers = P.putField []
+                               , msgtuids = P.putField []
+                               , msghosts = P.putField $ map (\(Host loc _) -> T.pack loc) r
+                               , msghuids = P.putField $ map (\(Host loc _) -> T.pack loc) r
+                               }
+                sendMsg c p msg2
 
-addSelf :: String -> NS.ServiceName -> MVar State -> IO ()
-addSelf h p d = do
+addSelf :: MVar State -> IO ()
+addSelf d = do
         (Just uid) <- U1.nextUUID
-        (State _ (Cluster a r) _) <- readMVar d
+        (State _ (Cluster a r) (NetState h p _)) <- readMVar d
         let lst = filter (\h -> not (h `elem` r)) a
-        modifyMVar_ d (\s -> return $ addHost s (Host h (show uid)))
+        modifyMVar_ d (\(State s (Cluster a r) n) -> return (State s (Cluster ((Host h (show uid)):a) r) n))
         mapM_ (\(Host hst _) -> forkIO $ addHostToTarget (Host h (show uid)) hst p) lst
 
 addHostToTarget :: Host -> String -> NS.ServiceName -> IO ()
@@ -150,9 +148,9 @@ askForNodes l p = do
                       }
         sendMsg l p msg
 
-sendAddDeltas :: MVar State -> NS.ServiceName -> [Tag] -> IO ()
-sendAddDeltas d p toadd = do 
-                 s <- readMVar d
+sendAddDeltas :: MVar State -> [Tag] -> IO ()
+sendAddDeltas d toadd = do 
+                 (State s (Cluster a r) (NetState _ p _)) <- readMVar d
                  let msg = Msg { msgoper  = P.putField 0
                                , msgusers = P.putField $ map (\(Tag user _ _) -> T.pack user) toadd
                                , msgtags  = P.putField $ map (\(Tag _ id _) -> T.pack id) toadd
@@ -160,12 +158,12 @@ sendAddDeltas d p toadd = do
                                , msghosts = P.putField []
                                , msghuids = P.putField []
                                }
-                 let hosts = getActiveHosts s
+                 let hosts = filter (\h -> not (h `elem` r)) a
                  mapM_ (\(Host h _) -> forkIO $ sendMsg h p msg) hosts
 
-sendDelDeltas :: MVar State -> NS.ServiceName -> [Tag] -> IO ()
-sendDelDeltas d p todel = do 
-                 s <- readMVar d
+sendDelDeltas :: MVar State -> [Tag] -> IO ()
+sendDelDeltas d todel = do 
+                 (State s (Cluster a r) (NetState _ p _)) <- readMVar d
                  let msg = Msg { msgoper  = P.putField 1
                                , msgusers = P.putField $ map (\(Tag user _ _) -> T.pack user) todel
                                , msgtags  = P.putField $ map (\(Tag _ id _) -> T.pack id) todel
@@ -173,7 +171,7 @@ sendDelDeltas d p todel = do
                                , msghosts = P.putField []
                                , msghuids = P.putField []
                                }
-                 let hosts = getActiveHosts s
+                 let hosts = filter (\h -> not (h `elem` r)) a
                  mapM_ (\(Host h _) -> sendMsg h p msg) hosts
 
 sendMsg :: String -> NS.ServiceName -> Msg -> IO ()

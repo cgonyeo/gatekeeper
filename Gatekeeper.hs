@@ -22,12 +22,15 @@ import GateLDAP
 getInitData :: IO (MVar State)
 getInitData = do
        m <- newEmptyMVar
-       putMVar m (State (Set [Tag "buttlord" "33333" "69696969"] []) (Cluster [] []) NotAMember)
+       putMVar m (State (Set [Tag "buttlord" "33333" "69696969"] []) (Cluster [] []) (NetState "" "0" NotAMember))
        return m
 
-start progName args d = do s <- listenOn $ PortNumber $ fromIntegral $ read (args !! 1)
-                           netloop s d (args !! 0) (args !! 1)
+start progName args d = do modifyMVar_ d (\(State s c (NetState _ _ m)) -> return $ State s c (NetState host port m))
+                           s <- listenOn $ PortNumber $ fromIntegral $ (read port :: Int)
+                           netloop s d
                            return ()
+                           where port = (args !! 1)
+                                 host = (args !! 0)
 
 main = do
         progName <- getProgName
@@ -35,11 +38,11 @@ main = do
         d <- getInitData
         case (length args) of
             2 -> do (Just uid) <- U1.nextUUID
-                    modifyMVar_ d (\s -> return $ changeMembership (addHost s (Host (args !! 0) (show uid))) Member)
+                    modifyMVar_ d (\(State s (Cluster a r) (NetState h p _)) -> return (State s (Cluster ((Host (args !! 0) (show uid)):a) r) (NetState h p Member)))
                     forkIO $ start progName args d
             3 -> do forkIO $ do askForNodes (args !! 2) (args !! 1)
-                                modifyMVar_ d (\s -> return $ changeMembership s Joining)
+                                modifyMVar_ d (\(State s c (NetState h p _)) -> return (State s c (NetState h p Joining)))
                     forkIO $ start progName args d
             _ -> do putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
                     exitFailure
-        ldaploop d (args !! 1)
+        ldaploop d
