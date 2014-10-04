@@ -12,7 +12,7 @@ import Network.Socket
 import qualified Data.UUID.V1 as U1
 
 import Gatekeeper.CRDT
-import Gatekeeper.Network
+import Gatekeeper.NetUtils
 
 ldaploop :: MVar State -> IO ()
 ldaploop d = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
@@ -20,6 +20,8 @@ ldaploop d = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
                 (toadd,todel) <- fetchTagChanges d
                 forkIO $ batchAdds d toadd
                 forkIO $ batchDels d todel
+                modifyMVar_ d (\s -> return $ addManyTags s toadd)
+                modifyMVar_ d (\s -> return $ removeManyTags s todel)
                 ldaploop d
 
 batchAdds :: MVar State -> [Tag] -> IO ()

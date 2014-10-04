@@ -2,9 +2,12 @@ module Gatekeeper.CRDT ( Tag (Tag)
                        , Set (Set)
                        , Host (Host)
                        , Cluster (Cluster)
+                       , HostClock (HostClock)
                        , Membership (NotAMember,Joining,Receiving,Member)
                        , NetState (NetState)
                        , State (State)
+                       , incClock
+                       , clockTick
                        , isInSet
                        , inCluster
                        , addTag
@@ -15,6 +18,7 @@ module Gatekeeper.CRDT ( Tag (Tag)
                        , addManyHosts
                        , removeHost
                        , removeManyHosts
+                       , changeMembership
                        ) where
 
 import qualified Data.List as L
@@ -31,14 +35,39 @@ data Host = Host { nhostname :: String
                  } deriving (Show,Eq)
 data Cluster = Cluster [Host] [Host] deriving (Show,Eq)
 
+data HostClock = HostClock { hUid :: String
+                           , vclock   :: Int
+                           } deriving (Show,Eq)
+
 data Membership = NotAMember | Joining | Receiving | Member deriving (Show,Eq)
 
-data NetState = NetState { hostname :: String
-                         , port :: String
+data NetState = NetState { myHost     :: Host
+                         , port       :: String
+                         , clock      :: [HostClock]
                          , membership :: Membership
                          } deriving (Show,Eq)
 
 data State = State Set Cluster NetState deriving (Show,Eq)
+
+--Given a HostClock list, and a host's uid, increment that host's clock
+incClock :: [HostClock] -> String -> [HostClock]
+incClock ((HostClock u c):xs) uid = 
+        if u == uid
+            then ((HostClock u (c + 1)):xs)
+            else ((HostClock u c):(incClock xs uid))
+
+--Given a State and a host's ip, increment that host's clock
+clockTick :: State -> String -> State
+clockTick (State s (Cluster a r) (NetState h p vclock m)) host =
+        (State s (Cluster a r) (NetState h p (incClock vclock uid) m))
+        where uid = uidForHost (filter (\e -> not $ e `elem` r) a) host
+
+--Given a host's ip, look up it's uid
+uidForHost :: [Host] -> String -> String
+uidForHost [] host = ""
+uidForHost ((Host h u):xs) host = if h == host
+                                      then h
+                                      else uidForHost xs host
 
 isInSet :: State -> String -> String -> Bool
 isInSet (State (Set a r) _ _) u t = 
@@ -81,3 +110,6 @@ removeHost (State s (Cluster a r) n) e = if e `elem` r
 
 removeManyHosts :: State -> [Host] -> State
 removeManyHosts state hosts = foldl (\s h -> removeHost s h) state hosts
+
+changeMembership :: State -> Membership -> State
+changeMembership (State s c (NetState h p v _)) m = (State s c (NetState h p v m))
