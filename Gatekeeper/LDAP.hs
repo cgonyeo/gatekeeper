@@ -18,25 +18,17 @@ ldaploop :: MVar State -> IO ()
 ldaploop d = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
                 threadDelay sleepamt
                 (toadd,todel) <- fetchTagChanges d
-                forkIO $ batchAdds d toadd
-                forkIO $ batchDels d todel
-                modifyMVar_ d (\s -> return $ addManyTags s toadd)
-                modifyMVar_ d (\s -> return $ removeManyTags s todel)
+                forkIO $ batch d toadd todel
+                modifyMVar_ d (\s -> return $ removeManyTags todel (addManyTags toadd s))
                 ldaploop d
 
-batchAdds :: MVar State -> [Tag] -> IO ()
-batchAdds d [] = do return ()
-batchAdds d toadd = do
-        let (currBatch,nextBatch) = splitAt 100 toadd
-        forkIO $ sendAddDeltas d currBatch
-        batchAdds d nextBatch
-
-batchDels :: MVar State -> [Tag] -> IO ()
-batchDels d [] = do return ()
-batchDels d todel = do
-        let (currBatch,nextBatch) = splitAt 100 todel
-        forkIO $ sendDelDeltas d currBatch
-        batchDels d nextBatch
+batch :: MVar State -> [Tag] -> [Tag] -> IO ()
+batch d [] [] = do return ()
+batch d toadd todel = do
+        let (currAddBatch,nextAddBatch) = splitAt 50 toadd
+        let (currDelBatch,nextDelBatch) = splitAt 50 todel
+        forkIO $ sendTagDeltas d currAddBatch currDelBatch
+        batch d nextAddBatch nextDelBatch
 
 getUser :: [(String, [String])] -> Maybe String
 getUser [] = Nothing

@@ -1,8 +1,7 @@
 module Gatekeeper.NetUtils ( lookupHost
-                           , sendNodes
+                           , sendState
                            , askForNodes
-                           , sendAddDeltas
-                           , sendDelDeltas
+                           , sendTagDeltas
                            , sendMsg
                            , addSelf
                            ) where
@@ -22,39 +21,29 @@ lookupHost :: String -> IO String
 lookupHost s = do rs <- makeResolvSeed defaultResolvConf
                   ips <- withResolver rs $ \r -> lookupA r $ C.pack s
                   case ips of
-                      Left e -> error (show e)
+                      Left e -> do putStrLn $ "Error fetching host IP: " ++ (show e)
+                                   return s
                       Right ips -> if (length ips) > 0
                                        then return (show $ ips !! 0)
                                        else return s
 
-sendNodes :: MVar State -> String -> IO ()
-sendNodes d c = do 
-                (State _ (Cluster a r) (NetState _ p _ _)) <- readMVar d
-                sendMsg c p (addHostsMsg a)
-                sendMsg c p (delHostsMsg r)
+sendState :: MVar State -> String  -> IO ()
+sendState d t = do
+                (State a c (NetState h p v m)) <- readMVar d
+                sendMsg t p $ stateToMsg (State a c (NetState h p v m))
 
 askForNodes :: String -> NS.ServiceName -> IO ()
-askForNodes l p = sendMsg l p reqNodesMsg
+askForNodes l p = sendMsg l p (newMsg [] [] [] [] [])
 
-sendAddDeltas :: MVar State -> [Tag] -> IO ()
-sendAddDeltas d toadd = 
-        do modifyMVar_ d (\(State s c (NetState (Host h u) p v m)) 
-                           -> return $ (State s c (NetState (Host h u) p (incClock v u) m)))
-           (State s (Cluster a r) (NetState (Host _ uid) p _ _)) <- readMVar d
-           let hosts = filter (\h -> not (h `elem` r)) a
+sendTagDeltas :: MVar State -> [Tag] -> [Tag] -> IO ()
+sendTagDeltas d toadd todel = 
+        do (State s (Cluster a r) (NetState (Host h uid) p v m)) <- takeMVar d
+           let newclocks = incClock v uid
+           let hosts = filter (\hst -> not (hst `elem` r)) a
            mapM_ (\(Host h u) -> if u /= uid
-                                     then forkIO $ sendMsg h p (addTagsMsg toadd)
+                                     then forkIO $ sendMsg h p (newMsg toadd todel [] [] newclocks)
                                      else myThreadId) hosts
-
-sendDelDeltas :: MVar State -> [Tag] -> IO ()
-sendDelDeltas d todel = 
-        do modifyMVar_ d (\(State s c (NetState (Host h u) p v m)) 
-                           -> return $ (State s c (NetState (Host h u) p (incClock v u) m)))
-           (State s (Cluster a r) (NetState (Host _ uid) p _ _)) <- readMVar d
-           let hosts = filter (\h -> not (h `elem` r)) a
-           mapM_ (\(Host h u) -> if u /= uid
-                                     then forkIO $ sendMsg h p (delTagsMsg todel)
-                                     else myThreadId) hosts
+           putMVar d (State s (Cluster a r) (NetState (Host h uid) p newclocks m))
 
 sendMsg :: String -> NS.ServiceName -> Msg -> IO ()
 sendMsg h p m = do
@@ -68,13 +57,10 @@ sendMsg h p m = do
 addSelf :: MVar State -> IO ()
 addSelf d = do
         (Just uid) <- U1.nextUUID
-        (State _ (Cluster a r) (NetState (Host h _) p _ _)) <- readMVar d
-        let lst = filter (\h -> not (h `elem` r)) a
-        modifyMVar_ d (\(State s (Cluster a r) (NetState (Host h _) p v m)) 
-                         -> let u = (show uid)
-                                host = (Host h u)
-                                vclock = ((HostClock u 0):v)
-                            in return $ (State s (Cluster (host:a) r) (NetState host p vclock m)))
-        modifyMVar_ d (\(State s c (NetState (Host h u) p v m)) 
-                         -> return $ (State s c (NetState (Host h u) p (incClock v u) m)))
-        mapM_ (\(Host hst _) -> forkIO $ sendMsg hst p (addHostsMsg [(Host h (show uid))])) lst
+        (State s (Cluster a r) (NetState (Host h _) p v m)) <- takeMVar d
+        let myhost = (Host h (show uid))
+        let myvclk = (HostClock (show uid) 1)
+        let hosts = filter (\h -> not (h `elem` r)) a
+        mapM_ (\(Host hst _) -> forkIO $ sendMsg hst p (newMsg [] [] [myhost] [] [myvclk])) hosts
+        let newstate = (State s (Cluster a r) (NetState myhost p (myvclk:v) m))
+        putMVar d newstate

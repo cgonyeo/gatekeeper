@@ -17,16 +17,17 @@ main = do
         args <- getArgs
         d <- getInitData
         case (length args) of
-            2 -> do (Just uid) <- U1.nextUUID
+            2 -> do modifyMVar_ d (\s -> return $ changeMembership Member s)
+                    (Just uid) <- U1.nextUUID
                     ip <- lookupHost (args !! 0)
                     modifyMVar_ d (\(State s (Cluster a r) (NetState h p v m)) 
                                     -> let newhost = (Host ip (show uid))
                                            u = (show uid)
                                            vclock = ((HostClock u 0):v)
                                        in return $ (State s (Cluster (newhost:a) r) (NetState newhost p vclock m)))
-                    modifyMVar_ d (\s -> return $ changeMembership s Member)
-            3 -> do forkIO $ askForNodes (args !! 2) (args !! 1)
-                    modifyMVar_ d (\s -> return $ changeMembership s Joining)
+            3 -> do modifyMVar_ d (\s -> return $ changeMembership Joining s)
+                    forkIO $ askForNodes (args !! 2) (args !! 1)
+                    return ()
             _ -> do putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
                     exitFailure
         forkIO $ start progName args d

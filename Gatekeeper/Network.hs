@@ -1,6 +1,4 @@
 module Gatekeeper.Network ( askForNodes
-                          , sendAddDeltas
-                          , sendDelDeltas
                           , netloop
                           ) where
 
@@ -30,37 +28,40 @@ client handle d c = do
 
 handleMsg :: Msg -> MVar State -> String -> IO ()
 handleMsg msg d n = do
-        putStrLn $ "\nRequest received from " ++ n ++ " for operation " ++ (show oper)
-        case oper of
-         -- 0: add these tags
-            0 -> modifyMVar_ d (\s -> return $ addManyTags s tags)
-         -- 1: remove these tags
-            1 -> modifyMVar_ d (\s -> return $ removeManyTags s tags)
-         -- 2: add these hosts
-            2 -> modifyMVar_ d (\s -> return $ addManyHosts s hosts)
-         -- 3: remove these hosts
-            3 -> modifyMVar_ d (\s -> return $ removeManyHosts s hosts)
-         -- 4: They requested we share all our known nodes with them
-            4 -> do forkIO $ sendNodes d n; return ()
-        case () of
-            _ | oper <= 3 -> modifyMVar_ d (\s -> return $ (clockTick s n))
-        modifyMVar_ d (\(State s c (NetState h p v m)) -> case () of
-                          _ | oper == 2 && m == Joining   
-                                -> return $ (State s c (NetState h p v Joining))
-                            | oper == 3 && m == Receiving 
-                                -> return $ (State s c (NetState h p v Receiving))
-                            | otherwise
-                                -> return $ (State s c (NetState h p v m)))
+        putStrLn $ "\nRequest received from " ++ n
+        case (mta,mtd,mha,mhd,mvc) of
+            (Just ta,Just td, Just ha, Just hd, Just vc) ->
+                do (State s c (NetState (Host h u) p v m)) <- takeMVar d
+                   putStrLn $ (show $ length ta) ++ " tags to add\n"
+                           ++ (show $ length td) ++ " tags to del\n"
+                           ++ (show $ length ha) ++ " hosts to add\n"
+                           ++ (show $ length hd) ++ " hosts to del\n"
+                           ++ (show $ length vc) ++ " hosts in the reported vector clock\n"
+                   let statemod = addManyTags ta
+                                . removeManyTags td
+                                . addManyHosts ha
+                                . removeManyHosts hd
+                   let (sWClks,rx1) = mergeVClock (State s c (NetState (Host h u) p v m)) vc
+                   let rx2 = rxreq2 v vc
+                   if rx1 || rx2
+                       then forkIO $ sendState d n
+                       else  myThreadId
+                   if m /= Member
+                       then putMVar d $ statemod $ changeMembership Member sWClks
+                       else putMVar d $ statemod sWClks
+            _ -> putStrLn $ "Invalid message: " ++ (show (mta,mtd,mha,mhd,mvc))
         (State s c (NetState (Host h u) p v m)) <- readMVar d
-        putStrLn $ "Operation completed for " ++ n ++ ". Current state:"
-        putStrLn $ (show s)
-        putStrLn $ (show c)
-        putStrLn $ (show (NetState (Host h u) p v m))
-        if (m == Member) && (not $ h `inCluster` c)
-            then do 
+        putStrLn $ "Operation completed for " ++ n 
+                      ++ ". Current state:\n" ++ (show s) 
+                                      ++ "\n" ++ (show c) 
+                                      ++ "\n" ++ (show (NetState (Host h u) p v m))
+        if (m == Member) && (not $ u `inCluster` c)
+            then do putStrLn "Adding self..."
                     forkIO $ addSelf d
-                    return ()
-            else return ()
-        where (Just tags) = msgToTags msg
-              (Just hosts) = msgToHosts msg
-              oper = P.getField $ msgoper msg
+            else myThreadId
+        return ()
+        where mta = msgToAddTags  msg
+              mtd = msgToDelTags  msg
+              mha = msgToAddHosts msg
+              mhd = msgToDelHosts msg
+              mvc = msgToVClocks  msg

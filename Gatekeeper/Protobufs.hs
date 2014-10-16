@@ -2,22 +2,28 @@
 {-# LANGUAGE DataKinds #-}
 
 module Gatekeeper.Protobufs ( Msg ( Msg
-                                  , msgoper
-                                  , msgusers
-                                  , msgtags
-                                  , msgtuids
-                                  , msghosts
-                                  , msghuids
+                                  , msgusersadd
+                                  , msgtagsadd
+                                  , msgtuidsadd
+                                  , msgusersdel
+                                  , msgtagsdel
+                                  , msgtuidsdel
+                                  , msghostsadd
+                                  , msghuidsadd
+                                  , msghostsdel
+                                  , msghuidsdel
+                                  , msgclkuids
+                                  , msgclkcnts
                                   )
                             , blobToMsg
                             , msgToBlob
-                            , msgToTags
-                            , msgToHosts
-                            , addTagsMsg
-                            , delTagsMsg
-                            , addHostsMsg
-                            , delHostsMsg
-                            , reqNodesMsg
+                            , msgToAddTags
+                            , msgToDelTags
+                            , msgToAddHosts
+                            , msgToDelHosts
+                            , msgToVClocks
+                            , newMsg
+                            , stateToMsg
                             ) where
 
 import qualified Data.ByteString.Char8 as C
@@ -27,16 +33,31 @@ import qualified Data.ProtocolBuffers as P
 import qualified Data.Serialize.Get as G
 import qualified Data.Serialize.Put as SP
 import qualified Data.Text as T
+import qualified Data.Int as I
 import GHC.Generics (Generic)
 
 import Gatekeeper.CRDT
 
-data Msg = Msg { msgoper   :: P.Required 1 (P.Value I.Int64)
-               , msgusers  :: P.Repeated 2 (P.Value T.Text)
-               , msgtags   :: P.Repeated 3 (P.Value T.Text)
-               , msgtuids  :: P.Repeated 4 (P.Value T.Text)
-               , msghosts  :: P.Repeated 5 (P.Value T.Text)
-               , msghuids  :: P.Repeated 6 (P.Value T.Text)
+--Msg contains arrays which represent two [Tag]s, two [Host]s, and one 
+--[HostClock]. 
+--msgusersadd, msgtagsadd, and msgtuidsadd represent a [Tag] containing elements
+--to be appended to the added set of tags.
+--msgusersdel, msgtagsdel, and msgtuidsdel represent a [Tag] containing elements
+--to be appended to the removed set of tags.
+--msghostsadd and msghuidsadd represent a [Host], along with their del variants.
+--The [HostClock] is represented by msgclkuids and msgclkcnts
+data Msg = Msg { msgusersadd  :: P.Repeated 1  (P.Value T.Text)
+               , msgtagsadd   :: P.Repeated 2  (P.Value T.Text)
+               , msgtuidsadd  :: P.Repeated 3  (P.Value T.Text)
+               , msgusersdel  :: P.Repeated 4  (P.Value T.Text)
+               , msgtagsdel   :: P.Repeated 5  (P.Value T.Text)
+               , msgtuidsdel  :: P.Repeated 6  (P.Value T.Text)
+               , msghostsadd  :: P.Repeated 7  (P.Value T.Text)
+               , msghuidsadd  :: P.Repeated 8  (P.Value T.Text)
+               , msghostsdel  :: P.Repeated 9  (P.Value T.Text)
+               , msghuidsdel  :: P.Repeated 10 (P.Value T.Text)
+               , msgclkuids   :: P.Repeated 11 (P.Value T.Text)
+               , msgclkcnts   :: P.Repeated 12 (P.Value I.Int64)
                } deriving (Generic,Show)
 
 instance P.Encode Msg
@@ -48,67 +69,58 @@ blobToMsg s = G.runGet P.decodeMessage =<< H.unhex (C.pack s)
 msgToBlob :: Msg -> String
 msgToBlob m = C.unpack $ fmap H.hex SP.runPut $ P.encodeMessage m
 
-msgToTags :: Msg -> Maybe [Tag]
-msgToTags msg = if ((length users) == (length tags)) && ((length tags) == (length uids))
-                    then Just $ zipWith3 (\user tagid uid -> (Tag user tagid uid)) users tags uids
-                    else Nothing
-                    where users = map T.unpack $ P.getField $ msgusers msg
-                          tags  = map T.unpack $ P.getField $ msgtags  msg
-                          uids  = map T.unpack $ P.getField $ msgtuids msg
+msgToAddTags :: Msg -> Maybe [Tag]
+msgToAddTags msg = if ((length users) == (length tags)) && ((length tags) == (length uids))
+                      then Just $ zipWith3 (\user tagid uid -> (Tag user tagid uid)) users tags uids
+                      else Nothing
+                      where users = map T.unpack $ P.getField $ msgusersadd msg
+                            tags  = map T.unpack $ P.getField $ msgtagsadd  msg
+                            uids  = map T.unpack $ P.getField $ msgtuidsadd msg
 
-msgToHosts :: Msg -> Maybe [Host]
-msgToHosts msg = if (length hosts) == (length uids)
-                    then Just $ zipWith (\host uid -> (Host host uid)) hosts uids
-                    else Nothing
-                    where hosts = map T.unpack $ P.getField $ msghosts msg
-                          uids  = map T.unpack $ P.getField $ msghuids msg
+msgToDelTags :: Msg -> Maybe [Tag]
+msgToDelTags msg = if ((length users) == (length tags)) && ((length tags) == (length uids))
+                      then Just $ zipWith3 (\user tagid uid -> (Tag user tagid uid)) users tags uids
+                      else Nothing
+                      where users = map T.unpack $ P.getField $ msgusersdel msg
+                            tags  = map T.unpack $ P.getField $ msgtagsdel  msg
+                            uids  = map T.unpack $ P.getField $ msgtuidsdel msg
 
-addTagsMsg :: [Tag] -> Msg
-addTagsMsg tags = 
-        Msg { msgoper  = P.putField 0
-            , msgusers = P.putField $ map (\(Tag user _ _) -> T.pack user) tags
-            , msgtags  = P.putField $ map (\(Tag _ id _) -> T.pack id) tags
-            , msgtuids = P.putField $ map (\(Tag _ _ uid) -> T.pack uid) tags
-            , msghosts = P.putField []
-            , msghuids = P.putField []
+msgToAddHosts :: Msg -> Maybe [Host]
+msgToAddHosts msg = if (length hosts) == (length uids)
+                       then Just $ zipWith (\host uid -> (Host host uid)) hosts uids
+                       else Nothing
+                       where hosts = map T.unpack $ P.getField $ msghostsadd msg
+                             uids  = map T.unpack $ P.getField $ msghuidsadd msg
+
+msgToDelHosts :: Msg -> Maybe [Host]
+msgToDelHosts msg = if (length hosts) == (length uids)
+                       then Just $ zipWith (\host uid -> (Host host uid)) hosts uids
+                       else Nothing
+                       where hosts = map T.unpack $ P.getField $ msghostsdel msg
+                             uids  = map T.unpack $ P.getField $ msghuidsdel msg
+
+msgToVClocks :: Msg -> Maybe [HostClock]
+msgToVClocks msg = if (length uids) == (length counts)
+                      then Just $ zipWith (\uid count -> (HostClock uid count)) uids counts
+                      else Nothing
+                          where uids   = map T.unpack $ P.getField $ msgclkuids msg
+                                counts = map fromIntegral $ P.getField $ msgclkcnts msg
+
+newMsg :: [Tag] -> [Tag] -> [Host] -> [Host] -> [HostClock] -> Msg
+newMsg ta td ha hd hc =
+        Msg { msgusersadd = P.putField $ map (\(Tag user _ _)    -> T.pack user) ta
+            , msgtagsadd  = P.putField $ map (\(Tag _ id _)      -> T.pack id)   ta
+            , msgtuidsadd = P.putField $ map (\(Tag _ _ uid)     -> T.pack uid)  ta
+            , msgusersdel = P.putField $ map (\(Tag user _ _)    -> T.pack user) td
+            , msgtagsdel  = P.putField $ map (\(Tag _ id _)      -> T.pack id)   td
+            , msgtuidsdel = P.putField $ map (\(Tag _ _ uid)     -> T.pack uid)  td
+            , msghostsadd = P.putField $ map (\(Host host _)     -> T.pack host) ha
+            , msghuidsadd = P.putField $ map (\(Host _ uid)      -> T.pack uid)  ha
+            , msghostsdel = P.putField $ map (\(Host host _)     -> T.pack host) hd
+            , msghuidsdel = P.putField $ map (\(Host _ uid)      -> T.pack uid)  hd
+            , msgclkuids  = P.putField $ map (\(HostClock uid _) -> T.pack uid)  hc
+            , msgclkcnts  = P.putField $ map (\(HostClock _ cnt) -> (fromIntegral cnt) :: I.Int64)  hc
             }
 
-delTagsMsg :: [Tag] -> Msg
-delTagsMsg tags = 
-        Msg { msgoper  = P.putField 1
-            , msgusers = P.putField $ map (\(Tag user _ _) -> T.pack user) tags
-            , msgtags  = P.putField $ map (\(Tag _ id _) -> T.pack id) tags
-            , msgtuids = P.putField $ map (\(Tag _ _ uid) -> T.pack uid) tags
-            , msghosts = P.putField []
-            , msghuids = P.putField []
-            }
-
-addHostsMsg :: [Host] -> Msg
-addHostsMsg hosts = 
-        Msg { msgoper  = P.putField 2
-            , msgtags  = P.putField []
-            , msgusers = P.putField []
-            , msgtuids = P.putField []
-            , msghosts = P.putField $ map (\(Host h _) -> T.pack h) hosts
-            , msghuids = P.putField $ map (\(Host _ u) -> T.pack u) hosts
-            }
-
-delHostsMsg :: [Host] -> Msg
-delHostsMsg hosts = 
-        Msg { msgoper  = P.putField 3
-            , msgtags  = P.putField []
-            , msgusers = P.putField []
-            , msgtuids = P.putField []
-            , msghosts = P.putField $ map (\(Host h _) -> T.pack h) hosts
-            , msghuids = P.putField $ map (\(Host _ u) -> T.pack u) hosts
-            }
-
-reqNodesMsg :: Msg
-reqNodesMsg = 
-        Msg { msgoper  = P.putField 4
-            , msgtags  = P.putField []
-            , msgusers = P.putField []
-            , msgtuids = P.putField []
-            , msghosts = P.putField []
-            , msghuids = P.putField []
-            }
+stateToMsg :: State -> Msg
+stateToMsg (State (Set ta td) (Cluster ha hd) (NetState _ _ hc _)) = newMsg ta td ha hd hc
