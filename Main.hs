@@ -1,51 +1,51 @@
 {-# LANGUAGE OverloadedStrings #-}
-import qualified Data.UUID.V1 as U1
-import Network
 import Control.Concurrent
+import Network
 import System.Environment
-import System.IO
 import System.Exit
+import System.IO
 
+import qualified Data.UUID.V1 as U1
+
+import Gatekeeper.CRDT
+import Gatekeeper.Heartbeat
+import Gatekeeper.LDAP
 import Gatekeeper.Network
 import Gatekeeper.NetUtils
-import Gatekeeper.CRDT
-import Gatekeeper.LDAP
 
 main :: IO ()
 main = do
         progName <- getProgName
         args <- getArgs
-        d <- getInitData
-        case (length args) of
-            2 -> do modifyMVar_ d (\s -> return $ changeMembership Member s)
-                    (Just uid) <- U1.nextUUID
-                    ip <- lookupHost (args !! 0)
-                    modifyMVar_ d (\(State s (Cluster a r) (NetState h p v m)) 
-                                    -> let newhost = (Host ip (show uid))
-                                           u = (show uid)
-                                           vclock = ((HostClock u 0):v)
-                                       in return $ (State s (Cluster (newhost:a) r) (NetState newhost p vclock m)))
-            3 -> do modifyMVar_ d (\s -> return $ changeMembership Joining s)
-                    forkIO $ askForNodes (args !! 2) (args !! 1)
-                    return ()
-            _ -> do putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
+        if (length args) >= 2 && (length args <= 3)
+            then start progName args
+            else do putStrLn $ "Usage: " ++ progName ++ " <hostname> <portnum> (<known host>)"
                     exitFailure
-        forkIO $ start progName args d
-        ldaploop d
 
 getInitData :: IO (MVar State)
-getInitData = do
+getInitData = do -- May eventually read from a config file or some shit
        m <- newEmptyMVar
-       putMVar m (State (Set [] []) (Cluster [] []) (NetState (Host "" "") "0" [] NotAMember))
+       putMVar m (State (Set [] []) (Cluster [] []) [] (NetState (Host "" "" (HostClock "" 0)) "0"))
        return m
 
-start :: String -> [String] -> MVar State -> IO ()
-start progName args d = do host <- lookupHost hosttext
-                           putStrLn $ progName ++ " started on port '" ++ port ++ "'. I am host '" ++ host ++ "'."
-                           modifyMVar_ d (\(State s c (NetState (Host _ u) _ v m)) 
-                                            -> return $ State s c (NetState (Host host u) port v m))
-                           s <- listenOn $ PortNumber $ fromIntegral $ (read port :: Int)
-                           netloop s d
-                           return ()
-                           where port = (args !! 1)
-                                 hosttext = (args !! 0)
+start :: String -> [String] -> IO ()
+start progName args = do d <- getInitData
+                         host <- lookupHost hosttext
+                         (Just uid) <- U1.nextUUID
+                         modifyMVar_ d (\(State s (Cluster a r) v (NetState _ _)) 
+                                          -> let u = (show uid)
+                                                 newhost = (Host host u (HostClock u 0))
+                                                 vclock = (HostClock u 0)
+                                             in return $ State s (Cluster (newhost:a) r) (vclock:v) (NetState newhost port))
+                         putStrLn $ progName ++ " started on port '" ++ port ++ "'. I am host '" ++ host ++ "'."
+                         forkIO $ netloop d =<< listenOn portNum
+                         forkIO $ ldaploop d
+                         if (length args) == 3
+                             then do forkIO $ addSelf d (args !! 2) port
+                                     return ()
+                             else return ()
+                         sendHeartbeats d
+                         return ()
+                         where port = (args !! 1)
+                               hosttext = (args !! 0)
+                               portNum = PortNumber $ fromIntegral $ (read port :: Int)

@@ -15,11 +15,10 @@ import Gatekeeper.CRDT
 import Gatekeeper.NetUtils
 
 ldaploop :: MVar State -> IO ()
-ldaploop d = do sleepamt <- randomRIO (1000000 * 10, 1000000 * 30)
+ldaploop d = do sleepamt <- randomRIO (1000000 * 60, 1000000 * 60 * 5)
                 threadDelay sleepamt
                 (toadd,todel) <- fetchTagChanges d
                 forkIO $ batch d toadd todel
-                modifyMVar_ d (\s -> return $ removeManyTags todel (addManyTags toadd s))
                 ldaploop d
 
 batch :: MVar State -> [Tag] -> [Tag] -> IO ()
@@ -51,11 +50,11 @@ genAddDeltas :: State -> [(String,String)] -> IO [Tag]
 genAddDeltas s p = do
         let toadd = filter (\(user, id) -> not $ isInSet s user id) p
         uids <- mapM (\_ -> U1.nextUUID) toadd
-        return $ zipWith (\(user,id) (Just uid) -> Tag user id (show uid)) toadd uids
+        return $ zipWith (\(user,id) (Just uid) -> Tag user id (show uid) (HostClock "" 0)) toadd uids
 
 genDelDeltas :: State -> [(String,String)] -> IO [Tag]
-genDelDeltas (State (Set a r) _ _) p = do
-        return $ filter (\(Tag user id _) -> not $ (user,id) `elem` p) (filter (\t -> not $ t `elem` r) a)
+genDelDeltas (State s _ _ _) p = do
+        return $ filter (\(Tag user id _ _) -> not $ (user,id) `elem` p) $ currentTags s
 
 fetchTagChanges :: MVar (State) -> IO ([Tag],[Tag])
 fetchTagChanges d = do
