@@ -32,22 +32,22 @@ sendState d t = return ()
 
 sendTagDeltas :: MVar State -> [Tag] -> [Tag] -> IO ()
 sendTagDeltas d toadd todel = 
-        do (State s c v (NetState (Host h uid (HostClock hu hc)) p)) <- takeMVar d
+        do (State s c v (NetState (Host h uid (HostClock hu hc)) p ld hbu hbl)) <- takeMVar d
            let newtoadd = map (\(Tag n i u _) -> (Tag n i u (HostClock hu (hc+1)))) toadd
            let newtodel = map (\(Tag n i u _) -> (Tag n i u (HostClock hu (hc+1)))) todel
            let newclocks = incClock v uid
            mapM_ (\(Host h _ _) ->  forkIO $ sendMsg h p (newMsg newtoadd newtodel [] [] newclocks)) $ currentHosts c
-           putMVar d (State s c newclocks (NetState (Host h uid (HostClock hu (hc+1))) p))
+           putMVar d (State s c newclocks (NetState (Host h uid (HostClock hu (hc+1))) p ld hbu hbl))
 
 sendOperations :: State -> [HostClock] -> String -> IO ()
 sendOperations s [] h = return ()
-sendOperations (State (Set sa sr) (Cluster ca cr) hcs (NetState hst p)) (v:vs) h = 
+sendOperations (State (Set sa sr) (Cluster ca cr) hcs (NetState hst p ld hbu hbl)) (v:vs) h = 
         do sendMsg h p $ newMsg (filter (\(Tag _ _ _ clk) -> clk == v) sa)
                                 (filter (\(Tag _ _ _ clk) -> clk == v) sr)
                                 (filter (\(Host _ _ clk)  -> clk == v) ca)
                                 (filter (\(Host _ _ clk)  -> clk == v) cr)
                                 (vclkstep hcs (vs))
-           sendOperations (mergeVClock [v] (State (Set sa sr) (Cluster ca cr) hcs (NetState hst p))) vs h
+           sendOperations (mergeVClock [v] (State (Set sa sr) (Cluster ca cr) hcs (NetState hst p ld hbu hbl))) vs h
         where vclkstep :: [HostClock] -> [HostClock] -> [HostClock]
               vclkstep mv lv = filter (\(HostClock _ c) -> c >= 0) $ foldl (\acc (HostClock u c) -> decClock acc u) mv lv
 
@@ -62,6 +62,6 @@ sendMsg h p m = do
 
 addSelf :: MVar State -> String -> NS.ServiceName -> IO ()
 addSelf d host port = do
-        (State s (Cluster a r) v (NetState (Host h uid hv) p)) <- readMVar d
+        (State s (Cluster a r) v (NetState (Host h uid hv) p _ _ _)) <- readMVar d
         forkIO $ sendMsg host port (newMsg [] [] [(Host h uid hv)] [] [hv])
         return ()

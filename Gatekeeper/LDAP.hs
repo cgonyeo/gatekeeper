@@ -14,8 +14,12 @@ import qualified Data.UUID.V1 as U1
 import Gatekeeper.CRDT
 import Gatekeeper.NetUtils
 
+second :: Double
+second = 1000000
+
 ldaploop :: MVar State -> IO ()
-ldaploop d = do sleepamt <- randomRIO (1000000 * 60, 1000000 * 60 * 5)
+ldaploop d = do (State _ _ _ (NetState _ _ (LdapInfo _ _ _ ldu ldl) _ _)) <- readMVar d
+                sleepamt <- randomRIO (truncate $ second * 60 * ldu, truncate $ second * 60 * ldl)
                 threadDelay sleepamt
                 (toadd,todel) <- fetchTagChanges d
                 forkIO $ batch d toadd todel
@@ -58,8 +62,9 @@ genDelDeltas (State s _ _ _) p = do
 
 fetchTagChanges :: MVar (State) -> IO ([Tag],[Tag])
 fetchTagChanges d = do
-        l <- ldapInitialize "ldaps://ldap.csh.rit.edu"
-        ldapSimpleBind l "uid=dgonyeo,ou=users,dc=csh,dc=rit,dc=edu" "lolpassword"
+        (State _ _ _ (NetState _ _ (LdapInfo url user pass _ _) _ _)) <- readMVar d
+        l <- ldapInitialize url
+        ldapSimpleBind l user pass
         results <- ldapSearch l (Just "dc=csh,dc=rit,dc=edu") LdapScopeSubtree Nothing (LDAPAttrList ["uid","roomNumber"]) False
         let people = [((getUser a),(getId a)) | a <- (map (\(LDAPEntry _ attrs) -> attrs) results)]
         let peoplefiltered = filter (\(u,i) -> case (u,i) of
