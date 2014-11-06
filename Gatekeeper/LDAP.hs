@@ -14,16 +14,16 @@ import qualified Data.UUID.V1 as U1
 import Gatekeeper.CRDT
 import Gatekeeper.NetUtils
 
-second :: Double
-second = 1000000
+minute :: Double
+minute = 1000000.0 * 60.0
 
-ldaploop :: MVar State -> IO ()
-ldaploop d = do (State _ _ _ (NetState _ _ (LdapInfo _ _ _ ldu ldl) _ _)) <- readMVar d
-                sleepamt <- randomRIO (truncate $ second * 60 * ldu, truncate $ second * 60 * ldl)
-                threadDelay sleepamt
-                (toadd,todel) <- fetchTagChanges d
-                forkIO $ batch d toadd todel
-                ldaploop d
+ldaploop :: MVar State -> Double -> Double -> IO ()
+ldaploop d ldu ldl = do
+        sleepamt <- randomRIO (truncate $ minute * ldu, truncate $ minute * ldl)
+        threadDelay sleepamt
+        (toadd,todel) <- fetchTagChanges d
+        forkIO $ batch d toadd todel
+        ldaploop d ldu ldl
 
 batch :: MVar State -> [Tag] -> [Tag] -> IO ()
 batch d [] [] = do return ()
@@ -62,7 +62,7 @@ genDelDeltas (State s _ _ _) p = do
 
 fetchTagChanges :: MVar (State) -> IO ([Tag],[Tag])
 fetchTagChanges d = do
-        (State _ _ _ (NetState _ _ (LdapInfo url user pass _ _) _ _)) <- readMVar d
+        (State _ _ _ (NetState _ _ (LdapInfo url user pass))) <- readMVar d
         l <- ldapInitialize url
         ldapSimpleBind l user pass
         results <- ldapSearch l (Just "dc=csh,dc=rit,dc=edu") LdapScopeSubtree Nothing (LDAPAttrList ["uid","roomNumber"]) False

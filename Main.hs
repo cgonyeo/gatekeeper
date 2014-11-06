@@ -27,7 +27,7 @@ main = do
 getInitData :: IO (MVar State)
 getInitData = do -- May eventually read from a config file or some shit
        m <- newEmptyMVar
-       putMVar m (State (Set [] []) (Cluster [] []) [] (NetState (Host "" "" (HostClock "" 0)) "0" (LdapInfo "" "" "" 0 0) 0 0))
+       putMVar m (State (Set [] []) (Cluster [] []) [] (NetState (Host "" "" (HostClock "" 0)) "0" (LdapInfo "" "" "")))
        return m
 
 start :: String -> [String] -> IO ()
@@ -52,13 +52,13 @@ start progName args = do cfg <- forceEither `fmap` readfile emptyCP (args !! 0)
                                           -> let u       = (show uid)
                                                  newhost = (Host host u (HostClock u 0))
                                                  vclock  = (HostClock u 0)
-                                                 ld      = (LdapInfo ldapurl ldapusername ldappassword updateupper updatelower)
-                                             in return $ State s (Cluster (newhost:a) r) (vclock:v) (NetState newhost port ld hbu hbl))
+                                                 ld      = (LdapInfo ldapurl ldapusername ldappassword)
+                                             in return $ State s (Cluster (newhost:a) r) (vclock:v) (NetState newhost port ld))
                          putStrLn $ progName ++ " started on port '" ++ port ++ "'. I am host '" ++ host ++ "'."
                          forkIO $ netloop d =<< listenOn portNum
-                         forkIO $ ldaploop d
+                         forkIO $ ldaploop d updateupper updatelower
                          case knownnode of
                              Just h  -> forkIO $ addSelf d h port
                              Nothing -> myThreadId
-                         sendHeartbeats d
+                         sendHeartbeats d hbu hbl
                          return ()

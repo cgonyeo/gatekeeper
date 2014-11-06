@@ -48,15 +48,11 @@ data Cluster = Cluster [Host] [Host] deriving (Show,Eq)
 data LdapInfo = LdapInfo { ldapurl      :: String
                          , ldapusername :: String
                          , ldappassword :: String
-                         , updateupper  :: Double
-                         , updatelower  :: Double
                          } deriving (Show,Eq)
 
 data NetState = NetState { myHost   :: Host
                          , port     :: String
                          , ldapinfo :: LdapInfo
-                         , hbupper  :: Double
-                         , hblower  :: Double
                          } deriving (Show,Eq)
 
 data State = State Set Cluster [HostClock] NetState deriving (Show,Eq)

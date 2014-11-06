@@ -30,16 +30,16 @@ handleMsg msg d t = do
         putStrLn $ "\nRequest received from " ++ t
         if ta == [] && td == [] && ha == [] && hd == []
             then do putStrLn "Request is a heartbeat"
-                    (State s c v (NetState h p ld hbu hbl)) <- readMVar d
+                    (State s c v (NetState h p ld)) <- readMVar d
                     let (welack,theylack) = rxreq ta td ha hd v vc
                     case () of
                         _ | welack == [] && theylack == [] -> do myThreadId
                                                                  putStrLn "We're in sync"
-                          | welack == [] && theylack /= [] -> do forkIO $ sendOperations (State s c v (NetState h p ld hbu hbl)) theylack t
+                          | welack == [] && theylack /= [] -> do forkIO $ sendOperations (State s c v (NetState h p ld)) theylack t
                                                                  putStrLn $ "They lack " ++ (show theylack)
                           | welack /= [] && theylack == [] -> do forkIO $ sendMsg t p $ newMsg [] [] [] [] v
                                                                  putStrLn $ "We lack " ++ (show welack)
-                          | welack /= [] && theylack /= [] -> do forkIO $ do sendOperations (State s c v (NetState h p ld hbu hbl)) theylack t
+                          | welack /= [] && theylack /= [] -> do forkIO $ do sendOperations (State s c v (NetState h p ld)) theylack t
                                                                              sendMsg t p $ newMsg [] [] [] [] v
                                                                  putStrLn $ "We lack " ++ (show welack)
                                                                  putStrLn $ "They lack " ++ (show theylack)
@@ -51,22 +51,22 @@ handleMsg msg d t = do
                             ++ (show $ length vc) ++ " hosts in the reported vector clock\n"
                     let statemod = (mergeVClock vc . addManyTags ta . removeManyTags td
                                   . addManyHosts ha . removeManyHosts hd)
-                    (State s c v (NetState h p ld hbu hbl)) <-  takeMVar d
+                    (State s c v (NetState h p ld)) <-  takeMVar d
                     let (welack,theylack) = rxreq ta td ha hd v vc
                     case () of
-                        _ | welack == [] && theylack == [] -> putMVar d $ statemod (State s c v (NetState h p ld hbu hbl))
-                          | welack == [] && theylack /= [] -> do forkIO $ sendOperations (statemod (State s c v (NetState h p ld hbu hbl))) theylack t
-                                                                 putMVar d $ statemod (State s c v (NetState h p ld hbu hbl))
+                        _ | welack == [] && theylack == [] -> putMVar d $ statemod (State s c v (NetState h p ld))
+                          | welack == [] && theylack /= [] -> do forkIO $ sendOperations (statemod (State s c v (NetState h p ld))) theylack t
+                                                                 putMVar d $ statemod (State s c v (NetState h p ld))
                                                                  putStrLn $ "They lack " ++ (show theylack)
                           | welack /= [] && theylack == [] -> do forkIO $ sendMsg t p $ newMsg [] [] [] [] v
-                                                                 putMVar d (State s c v (NetState h p ld hbu hbl))
+                                                                 putMVar d (State s c v (NetState h p ld))
                                                                  putStrLn $ "We lack " ++ (show welack)
-                          | welack /= [] && theylack /= [] -> do forkIO $ do sendOperations (statemod (State s c v (NetState h p ld hbu hbl))) theylack t
+                          | welack /= [] && theylack /= [] -> do forkIO $ do sendOperations (statemod (State s c v (NetState h p ld))) theylack t
                                                                              sendMsg t p $ newMsg [] [] [] [] v
-                                                                 putMVar d $ statemod (State s c v (NetState h p ld hbu hbl))
+                                                                 putMVar d $ statemod (State s c v (NetState h p ld))
                                                                  putStrLn $ "We lack " ++ (show welack)
                                                                  putStrLn $ "They lack " ++ (show theylack)
-        (State s c v (NetState h p _ _ _)) <- readMVar d
+        (State s c v (NetState h p _)) <- readMVar d
         putStrLn $ "Operation completed for " ++ t 
                    ++ ".\nNum current tags: " ++ (show $ length $ currentTags s) 
                    ++ "\nNum current hosts: " ++ (show $ length $ currentHosts c) 

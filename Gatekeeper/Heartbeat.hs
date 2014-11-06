@@ -8,14 +8,14 @@ import Gatekeeper.CRDT
 import Gatekeeper.NetUtils
 import Gatekeeper.Protobufs
 
-second :: Double
-second = 1000000
+minute :: Double
+minute = 1000000.0 * 60.0
 
-sendHeartbeats :: MVar State -> IO ()
-sendHeartbeats d = do (State _ _ _ (NetState _ _ _ uu ul)) <- readMVar d
-                      sleepamt <- randomRIO (truncate $ second * 10 * uu, truncate $ second * 30 * ul)
-                      threadDelay sleepamt
-                      (State _ c v (NetState (Host _ uid _) p _ _ _)) <- readMVar d
-                      putStrLn $ "Sending heartbeats to " ++ (show $ (length $ currentHosts c) - 1) ++ " hosts"
-                      mapM_ (\(Host h _ _) -> forkIO $ sendMsg h p $ newMsg [] [] [] [] v) $ currentHosts c
-                      sendHeartbeats d
+sendHeartbeats :: MVar State -> Double -> Double -> IO ()
+sendHeartbeats d uu ul = do
+        sleepamt <- randomRIO (truncate $ minute * uu, truncate $ minute * ul)
+        threadDelay sleepamt
+        (State _ c v (NetState (Host _ uid _) p _)) <- readMVar d
+        putStrLn $ "Sending heartbeats to " ++ (show $ (length $ currentHosts c) - 1) ++ " hosts"
+        mapM_ (\(Host h _ _) -> forkIO $ sendMsg h p $ newMsg [] [] [] [] v) $ currentHosts c
+        sendHeartbeats d uu ul
