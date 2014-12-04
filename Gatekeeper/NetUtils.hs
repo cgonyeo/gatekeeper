@@ -21,10 +21,10 @@ lookupHost :: String -> IO String
 lookupHost s = do rs <- makeResolvSeed defaultResolvConf
                   ips <- withResolver rs $ \r -> lookupA r $ C.pack s
                   case ips of
-                      Left e -> do putStrLn $ "Error fetching host IP: " ++ (show e)
+                      Left e -> do putStrLn $ "Error fetching host IP: " ++ show e
                                    return s
-                      Right ips -> if (length ips) > 0
-                                       then return (show $ ips !! 0)
+                      Right ips -> if not $ null ips
+                                       then return (show $ head ips)
                                        else return s
 
 sendState :: MVar State -> String  -> IO ()
@@ -46,7 +46,7 @@ sendOperations (State (Set sa sr) (Cluster ca cr) hcs (NetState hst p ld)) (v:vs
                                 (filter (\(Tag _ _ _ clk) -> clk == v) sr)
                                 (filter (\(Host _ _ clk)  -> clk == v) ca)
                                 (filter (\(Host _ _ clk)  -> clk == v) cr)
-                                (vclkstep hcs (vs))
+                                (vclkstep hcs vs)
            sendOperations (mergeVClock [v] (State (Set sa sr) (Cluster ca cr) hcs (NetState hst p ld))) vs h
         where vclkstep :: [HostClock] -> [HostClock] -> [HostClock]
               vclkstep mv lv = filter (\(HostClock _ c) -> c >= 0) $ foldl (\acc (HostClock u c) -> decClock acc u) mv lv
@@ -63,5 +63,5 @@ sendMsg h p m = do
 addSelf :: MVar State -> String -> NS.ServiceName -> IO ()
 addSelf d host port = do
         (State s (Cluster a r) v (NetState (Host h uid hv) p _)) <- readMVar d
-        forkIO $ sendMsg host port (newMsg [] [] [(Host h uid hv)] [] [hv])
+        forkIO $ sendMsg host port (newMsg [] [] [Host h uid hv] [] [hv])
         return ()

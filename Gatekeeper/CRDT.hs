@@ -59,21 +59,21 @@ data State = State Set Cluster [HostClock] NetState deriving (Show,Eq)
 
 --Given a HostClock list, and a host's uid, increment that host's clock
 incClock :: [HostClock] -> String -> [HostClock]
-incClock ((HostClock u c):xs) uid = 
+incClock (HostClock u c : xs) uid = 
         if u == uid
-            then ((HostClock u (c + 1)):xs)
-            else ((HostClock u c):(incClock xs uid))
+            then HostClock u (c + 1) : xs
+            else HostClock u c : incClock xs uid
 
 --Given a HostClock list, and a host's uid, decrement that host's clock
 --Only used for playing back operations to another node
 decClock :: [HostClock] -> String -> [HostClock]
-decClock ((HostClock u c):xs) uid = 
+decClock (HostClock u c : xs) uid = 
         if u == uid
-            then ((HostClock u (c - 1)):xs)
-            else ((HostClock u c):(decClock xs uid))
+            then HostClock u (c - 1) : xs
+            else HostClock u c : decClock xs uid
 
 isInSet :: State -> String -> String -> Bool
-isInSet (State s _ _ _) u t = (length tags) > 0
+isInSet (State s _ _ _) u t = not $ null tags
        where tags = filter (\(Tag user id uid v) -> (user == u) && (id == t)) $ currentTags s
 
 currentTags :: Set -> [Tag]
@@ -92,7 +92,7 @@ currentHosts (Cluster a r) = filter (\(Host _ u1 _)
 
 inCluster :: String -> Cluster -> Bool
 inCluster u (Cluster a r) = u `anyElem` a && not (u `anyElem` r)
-        where anyElem s l = foldl (\acc (Host _ u _) -> (u == s) || acc) False l
+        where anyElem s = foldl (\acc (Host _ u _) -> (u == s) || acc) False
 
 addTag :: State -> Tag -> State
 addTag (State (Set a r) c v n) e = if e `elem` a
@@ -100,7 +100,7 @@ addTag (State (Set a r) c v n) e = if e `elem` a
                                      else State (Set (e:a) r) c v n
 
 addManyTags :: [Tag] -> State -> State
-addManyTags tags state = foldl (\s t -> addTag s t) state tags
+addManyTags tags state = foldl addTag state tags
 
 removeTag :: State -> Tag -> State
 removeTag (State (Set a r) c v n) e = if e `elem` r
@@ -108,7 +108,7 @@ removeTag (State (Set a r) c v n) e = if e `elem` r
                                         else State (Set a (e:r)) c v n
 
 removeManyTags :: [Tag] -> State -> State
-removeManyTags tags state = foldl (\s t -> removeTag s t) state tags
+removeManyTags tags state = foldl removeTag state tags
 
 addHost :: State -> Host -> State
 addHost (State s (Cluster a r) v n) e = if e `elem` a
@@ -116,7 +116,7 @@ addHost (State s (Cluster a r) v n) e = if e `elem` a
                                           else State s (Cluster (e:a) r) v n
 
 addManyHosts :: [Host] -> State -> State
-addManyHosts hosts state = foldl (\s h -> addHost s h) state hosts
+addManyHosts hosts state = foldl addHost state hosts
 
 removeHost :: State -> Host -> State
 removeHost (State s (Cluster a r) v n) e = if e `elem` r
@@ -124,17 +124,17 @@ removeHost (State s (Cluster a r) v n) e = if e `elem` r
                                              else State s (Cluster a (e:r)) v n
 
 removeManyHosts :: [Host] -> State -> State
-removeManyHosts hosts state = foldl (\s h -> removeHost s h) state hosts
+removeManyHosts hosts state = foldl removeHost state hosts
 
 mergeVClock :: [HostClock] -> State -> State
-mergeVClock clks (State s c v n) = (State s c newclks n)
-        where newclks = foldl (\vs clk -> merge vs clk) v clks
+mergeVClock clks (State s c v n) = State s c newclks n
+        where newclks = foldl merge v clks
               merge :: [HostClock] -> HostClock -> [HostClock]
               merge [] v = [v]
-              merge ((HostClock u1 c1):xs) (HostClock u2 c2) =
+              merge (HostClock u1 c1 : xs) (HostClock u2 c2) =
                       if u1 == u2
-                          then ((HostClock u1 (max c1 c2)):xs)
-                          else ((HostClock u1 c1):(merge xs (HostClock u2 c2)))
+                          then HostClock u1 (max c1 c2) : xs
+                          else HostClock u1 c1 : merge xs (HostClock u2 c2)
 
 --Takes the added and removed tags and hosts, our clocks, the reported clocks,
 --the reporting uid, and returns two [HostClock]s. The first one is operations
@@ -142,16 +142,16 @@ mergeVClock clks (State s c v n) = (State s c newclks n)
 rxreq :: [Tag] -> [Tag] -> [Host] -> [Host] -> [HostClock] -> [HostClock] -> ([HostClock],[HostClock])
 rxreq ta td ha hd mv rv = (reverse $ ticksNotHere ta td ha hd (newTicks mv rv),reverse $ newTicks rv mv)
     where newTicks :: [HostClock] -> [HostClock] -> [HostClock]
-          newTicks mv rv = foldl (\acc (HostClock ru rc) 
-                                   -> case (filter (\(HostClock mu _) -> ru == mu) mv) of
-                                        [(HostClock mu mc)] -> if rc > mc
-                                                                   then foldl (\acc x -> (x:acc)) acc (map (\n -> (HostClock ru n)) [(mc+1)..rc])
-                                                                   else acc
-                                        [] -> foldl (\acc x -> (x:acc)) acc (map (\n -> (HostClock ru n)) [0..rc])
-                                 ) [] rv
+          newTicks mv = foldl (\acc (HostClock ru rc) 
+                                -> case filter (\(HostClock mu _) -> ru == mu) mv of
+                                     [HostClock mu mc] -> if rc > mc
+                                                                then foldl (flip (:)) acc (map (HostClock ru) [(mc+1)..rc])
+                                                                else acc
+                                     [] -> foldl (flip (:)) acc (map (HostClock ru) [0..rc])
+                              ) []
           ticksNotHere :: [Tag] -> [Tag] -> [Host] -> [Host] -> [HostClock] -> [HostClock]
-          ticksNotHere ta td ha hd vs = filter (\v1
-                                                 -> not $ (foldl (\acc (Tag _ _ _ v2) -> acc || v1 == v2) False ta)
-                                                       || (foldl (\acc (Tag _ _ _ v2) -> acc || v1 == v2) False td)
-                                                       || (foldl (\acc (Host _ _ v2)  -> acc || v1 == v2) False ha)
-                                                       || (foldl (\acc (Host _ _ v2)  -> acc || v1 == v2) False hd)) vs
+          ticksNotHere ta td ha hd = filter (\v1
+                                              -> not $ foldl (\acc (Tag _ _ _ v2) -> acc || v1 == v2) False ta
+                                                    || foldl (\acc (Tag _ _ _ v2) -> acc || v1 == v2) False td
+                                                    || foldl (\acc (Host _ _ v2)  -> acc || v1 == v2) False ha
+                                                    || foldl (\acc (Host _ _ v2)  -> acc || v1 == v2) False hd)

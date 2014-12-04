@@ -19,7 +19,7 @@ main :: IO ()
 main = do
         progName <- getProgName
         args <- getArgs
-        if (length args) == 1
+        if length args == 1
             then start progName args
             else do putStrLn $ "Usage: " ++ progName ++ " <config>"
                     exitFailure
@@ -31,7 +31,7 @@ getInitData = do -- May eventually read from a config file or some shit
        return m
 
 start :: String -> [String] -> IO ()
-start progName args = do cfg <- forceEither `fmap` readfile emptyCP (args !! 0)
+start progName args = do cfg <- forceEither `fmap` readfile emptyCP (head args)
                          d <- getInitData
                          let hosttext      = forceEither $ get cfg "DEFAULT" "myhost"
                          let port          = forceEither $ get cfg "DEFAULT" "port"
@@ -45,14 +45,14 @@ start progName args = do cfg <- forceEither `fmap` readfile emptyCP (args !! 0)
                          let knownnode     = case get cfg "DEFAULT" "knownnode" of
                                                 Left _  -> Nothing
                                                 Right a -> Just a
-                         let portNum  = PortNumber $ fromIntegral $ (read port :: Int)
+                         let portNum  = PortNumber $ fromIntegral (read port :: Int)
                          host <- lookupHost hosttext
                          (Just uid) <- U1.nextUUID
                          modifyMVar_ d (\(State s (Cluster a r) v _) 
-                                          -> let u       = (show uid)
-                                                 newhost = (Host host u (HostClock u 0))
-                                                 vclock  = (HostClock u 0)
-                                                 ld      = (LdapInfo ldapurl ldapusername ldappassword)
+                                          -> let u       = show uid
+                                                 newhost = Host host u (HostClock u 0)
+                                                 vclock  = HostClock u 0
+                                                 ld      = LdapInfo ldapurl ldapusername ldappassword
                                              in return $ State s (Cluster (newhost:a) r) (vclock:v) (NetState newhost port ld))
                          putStrLn $ progName ++ " started on port '" ++ port ++ "'. I am host '" ++ host ++ "'."
                          forkIO $ netloop d =<< listenOn portNum

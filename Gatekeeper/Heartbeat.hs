@@ -16,6 +16,6 @@ sendHeartbeats d uu ul = do
         sleepamt <- randomRIO (truncate $ minute * uu, truncate $ minute * ul)
         threadDelay sleepamt
         (State _ c v (NetState (Host _ uid _) p _)) <- readMVar d
-        putStrLn $ "Sending heartbeats to " ++ (show $ (length $ currentHosts c) - 1) ++ " hosts"
+        putStrLn $ "Sending heartbeats to " ++ show (length (currentHosts c) - 1) ++ " hosts"
         mapM_ (\(Host h _ _) -> forkIO $ sendMsg h p $ newMsg [] [] [] [] v) $ currentHosts c
         sendHeartbeats d uu ul
